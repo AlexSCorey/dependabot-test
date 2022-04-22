@@ -15,4 +15,4 @@ updates:
       - "keithjgrant"
       - "marshmalien"
       - "kialam"
-    target-branch: "devel"
+    target-branch: "main"

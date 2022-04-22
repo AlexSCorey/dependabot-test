@@ -11,8 +11,4 @@ updates:
       interval: "daily"
     reviewers:
       - "AlexSCorey"
-      - "nixocio"
-      - "keithjgrant"
-      - "marshmalien"
-      - "kialam"
     target-branch: "main"

@@ -15,7 +15,7 @@ updates:
     reviewers:
       - "AlexSCorey"
     labels:
-      - "component:ui "
+      - "component:ui"
       - "dependencies"
     target-branch: "main"
   - package-ecosystem: "pip" # See documentation for possible values
@@ -24,4 +24,7 @@ updates:
       interval: "daily"
     reviewers:
       - "AlexSCorey"
+    labels:
+      - "component:api"
+      - "dependencies"
     target-branch: "main"

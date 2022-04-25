@@ -85,7 +85,7 @@ dictdiffer==0.8.1
     # via openshift
 distro==1.5.0
     # via -r requirements.in
-django==3.2.12
+django==3.2.13
     # via
     #   -r requirements.in
     #   channels

@@ -17,8 +17,8 @@ on:
 jobs:
   combine-prs:
     runs-on: ubuntu-latest
-    outputs:
-      fetch-branch-names: ${{steps.fetch-branch-names.outputs.values}}
+    # outputs:
+    #   fetch-branch-names: ${{steps.fetch-branch-names.outputs.values}}
 
     # pull_request_target:
     #   - type:
@@ -38,34 +38,21 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo
             });
+
             branches = [];
             uiBranches=[]
             apiBranches
             uiPrs = [];
             apiPrs=[];
             base_branch = null;
+
             for (const pull of pulls) {
               const branch = pull['head']['ref'];
               console.log('Pull for branch: ' + branch);
               if (branch.startsWith('dependabot')) {
                 console.log('Branch matched: ' + branch);
                 statusOK = true;
-                if(${{ github.event.inputs.mustBeGreen }}) {
-                  console.log('Checking green status: ' + branch);
-                  const statuses = await github.paginate('GET /repos/{owner}/{repo}/commits/{ref}/status', {
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    ref: branch
-                  });
 
-                  # if(contains(github.event.pull_request.labels.*.name, 'nocombine')) {
-                  #   console.log('Discarding ' + branch + ' with label ' + labelName);
-                  #   statusOK = false;
-                  # }
-
-
-
-                }
                 if (statusOK) {
                   if(contains(github.event.pull_request.labels.*.name, 'component:ui')){
                     uiBranches.push(branch)
@@ -75,12 +62,6 @@ jobs:
                     apiBranches.push(branchui)
                     apiPrs.push('#' + pull['number'] + ' ' + pull['title']);
                   }
-
-
-                  # console.log('Adding branch to array: ' + branch);
-                  # branches.push(branch);
-                  # prs.push('#' + pull['number'] + ' ' + pull['title']);
-                  # base_branch = pull['base']['ref'];
                 }
               }
             }
@@ -90,16 +71,11 @@ jobs:
               return;
             }
 
-            # core.setOutput('base-branch', base_branch);
-            # core.setOutput('ui_prs-string', uiPrs.join('\n'));
-            # core.setOutput('api_prs-string', apiPrs.join('\n'));
-            # core.setOutput('prs', prs)
 
             const uiPrStrings = uiPrs.join('\n')
             const apiPrStrings = apiPrs.join('\n')
             uiCombinedBranches = uiBranches.join(' ')
             apiCombinedBranches = apiBranches.join(' ')
-            console.log('Combined: ' + combined);
 
             core.setOutput('values', [{branches: uiCombinedBranches, prStrings: uiPrStrings, combinedBranchName: UIDependencyUpgrade, label: 'component:ui'}, {branches: apiCombinedBranches, prStrings: apiPrStrings, combinedBranchName: APIDependencyUpgrade, label:'component:api'}])
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it

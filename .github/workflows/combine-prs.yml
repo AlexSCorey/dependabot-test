@@ -11,6 +11,8 @@ on:
 jobs:
   combine-prs:
     runs-on: ubuntu-latest
+    outputs:
+      fetch-branch-names: ${{steps.fetch-branch-names.outputs.values}}
 
     pull_request_target:
       - type:
@@ -31,7 +33,10 @@ jobs:
               repo: context.repo.repo
             });
             branches = [];
-            prs = [];
+            uiBranches=[]
+            apiBranches
+            uiPrs = [];
+            apiPrs=[];
             base_branch = null;
             for (const pull of pulls) {
               const branch = pull['head']['ref'];
@@ -51,12 +56,25 @@ jobs:
                   #   console.log('Discarding ' + branch + ' with label ' + labelName);
                   #   statusOK = false;
                   # }
+
+
+
                 }
                 if (statusOK) {
-                  console.log('Adding branch to array: ' + branch);
-                  branches.push(branch);
-                  prs.push('#' + pull['number'] + ' ' + pull['title']);
-                  base_branch = pull['base']['ref'];
+                  if(contains(github.event.pull_request.labels.*.name, 'component:ui')){
+                    uiBranches.push(branch)
+                    uiPrs.push('#' + pull['number'] + ' ' + pull['title']);
+                  }
+                  if(contains(github.event.pull_request.labels.*.name, 'component:api')){
+                    apiBranches.push(branchui)
+                    apiPrs.push('#' + pull['number'] + ' ' + pull['title']);
+                  }
+
+
+                  # console.log('Adding branch to array: ' + branch);
+                  # branches.push(branch);
+                  # prs.push('#' + pull['number'] + ' ' + pull['title']);
+                  # base_branch = pull['base']['ref'];
                 }
               }
             }
@@ -66,15 +84,26 @@ jobs:
               return;
             }
 
-            core.setOutput('base-branch', base_branch);
-            core.setOutput('prs-string', prs.join('\n'));
-            core.setOutput('prs', prs)
-            core.setOutput('combined-branch-name', automateDependencyUpgrade)
+            # core.setOutput('base-branch', base_branch);
+            # core.setOutput('ui_prs-string', uiPrs.join('\n'));
+            # core.setOutput('api_prs-string', apiPrs.join('\n'));
+            # core.setOutput('prs', prs)
 
-            combined = branches.join(' ')
+            const uiPrStrings = uiPrs.join('\n')
+            const apiPrStrings = apiPrs.join('\n')
+            uiCombinedBranches = uiBranches.join(' ')
+            apiCombinedBranches = apiBranches.join(' ')
             console.log('Combined: ' + combined);
-            return combined
+
+            core.setOutput('values', [{branches: uiCombinedBranches, prStrings: uiPrStrings, combinedBranchName: UIDependencyUpgrade, label: 'component:ui'}, {branches: apiCombinedBranches, prStrings: apiPrStrings, combinedBranchName: APIDependencyUpgrade, label:'component:api'}])
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+  build:
+    needs: [combine-prs]
+    runs-on: ubuntu-latest
+    strategy:
+      fetch-branch-names:
+        value: ${{needs.combine-prs.outputs.values}}
+    steps:
       - name: Check out repo
         uses: actions/checkout@v3
         with:
@@ -83,9 +112,9 @@ jobs:
       - name: Created combined branch
         id: combine-branch-name
         env:
-          BASE_BRANCH: ${{ steps.fetch-branch-names.outputs.base-branch }}
-          BRANCHES_TO_COMBINE: ${{ steps.fetch-branch-names.outputs.result }}
-          COMBINE_BRANCH_NAME: "automateDependencyUpgrade"
+          BASE_BRANCH: devel
+          BRANCHES_TO_COMBINE: ${{ value.branches }}
+          COMBINE_BRANCH_NAME: ${{ value.combinedBranchName}}
         run: |
           echo "$BRANCHES_TO_COMBINE"
           sourcebranches="${BRANCHES_TO_COMBINE%\"}"
@@ -102,26 +131,29 @@ jobs:
           git checkout $COMBINE_BRANCH_NAME
           git pull origin $sourcebranches --no-edit
           git push origin $COMBINE_BRANCH_NAME
-      # Creates a PR with the new combined branch
+
       - name: Create Combined Pull Request
-        uses: actions/github-script@v6
+        uses: actions/github-script@v3
         env:
-          PRS_STRING: ${{ steps.fetch-branch-names.outputs.prs-string }}
+          PR_STRINGS: ${{ value.prStrings }}
+          BASE_BRANCH: devel
+          COMBINE_BRANCH_NAME: ${{ value.combinedBranchName}}
+          LABEL: ${{ value.label}}
         with:
           github-token: ${{secrets.GITHUB_TOKEN}}
           script: |
-            const prString = process.env.PRS_STRING;
-            const body = 'This PR was created by the Combine PRs action by combining the following PRs:\n' + prString;
+            const prString = PR_STRINGS
+            const body = 'This PR was created by the Combine PRs action by combining the following PRs:\n' + {{PR_STRINGS}};
             await github.pulls.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
               title: 'Combined PR',
-              head: '${{ steps.fetch-branch-names.outputs.combine-branch-name }}',
-              base: '${{ steps.fetch-branch-names.outputs.base-branch }}',
+              head: '${{ COMBINE_BRANCH_NAME }}',
+              base: '${{ BASE_BRANCH }}',
               body: body
+              labels:[${{ LABEL }}]
             });
       # - name: Close PRs that were combined
       #   run: |
       #     for (const pr of '${{ steps.fetch-branch-names.outputs.prs}}') {
       #       console.log(pr)
-

@@ -8,10 +8,10 @@ on:
         description: "Branch prefix to find combinable PRs based on"
         required: true
         default: "dependabot"
-  # pull_request:
-  #   types:
-  #     - opened
-  #   branches: -'dependabot/**'
+  pull_request:
+    types:
+      - opened
+    branches: -'dependabot/**'
 
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
@@ -20,11 +20,11 @@ jobs:
     outputs:
       fetch-branch-names: ${{steps.fetch-branch-names.outputs.values}}
 
-    pull_request_target:
-      - type:
-          - opened
-      - branches:
-          - "dependabot/**"
+    # pull_request_target:
+    #   - type:
+    #       - opened
+    #   - branches:
+    #       - "dependabot/**"
 
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
@@ -141,7 +141,7 @@ jobs:
       - name: Create Combined Pull Request
         uses: actions/github-script@v3
         env:
-          PR_STRINGS: ${{ value.prStrings }}
+          PR_STRINGS: ${{ matrix.value.prStrings }}
           BASE_BRANCH: devel
           COMBINE_BRANCH_NAME: ${{ matrix.value.combinedBranchName}}
           LABEL: ${{ matrix.value.label}}

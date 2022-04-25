@@ -139,7 +139,7 @@ jobs:
           git push origin $COMBINE_BRANCH_NAME
 
       - name: Create Combined Pull Request
-        uses: actions/github-script@v3
+        # uses: actions/github-script@v3
         env:
           PR_STRINGS: ${{ matrix.value.prStrings }}
           BASE_BRANCH: devel
@@ -147,7 +147,7 @@ jobs:
           LABEL: ${{ matrix.value.label }}
         with:
           github-token: ${{secrets.GITHUB_TOKEN}}
-          script: |
+          run: |
             const prString = PR_STRINGS
             const body = 'This PR was created by the Combine PRs action by combining the following PRs:\n' + {{PR_STRINGS}};
             await github.pulls.create({
@@ -157,7 +157,7 @@ jobs:
               head: '$COMBINE_BRANCH_NAME',
               base: '$BASE_BRANCH',
               body: body
-              labels:[${{ LABEL }}]
+              labels:['$LABEL']
             });
       # - name: Close PRs that were combined
       #   run: |

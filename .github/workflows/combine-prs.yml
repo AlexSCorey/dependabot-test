@@ -119,8 +119,8 @@ jobs:
         id: combine-branch-name
         env:
           BASE_BRANCH: devel
-          BRANCHES_TO_COMBINE: ${{ value.branches }}
-          COMBINE_BRANCH_NAME: ${{ value.combinedBranchName}}
+          BRANCHES_TO_COMBINE: ${{ matrix.value.branches }}
+          COMBINE_BRANCH_NAME: ${{ matrix.value.combinedBranchName}}
         run: |
           echo "$BRANCHES_TO_COMBINE"
           sourcebranches="${BRANCHES_TO_COMBINE%\"}"
@@ -143,8 +143,8 @@ jobs:
         env:
           PR_STRINGS: ${{ value.prStrings }}
           BASE_BRANCH: devel
-          COMBINE_BRANCH_NAME: ${{ value.combinedBranchName}}
-          LABEL: ${{ value.label}}
+          COMBINE_BRANCH_NAME: ${{ matrix.value.combinedBranchName}}
+          LABEL: ${{ matrix.value.label}}
         with:
           github-token: ${{secrets.GITHUB_TOKEN}}
           script: |

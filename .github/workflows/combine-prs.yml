@@ -54,11 +54,11 @@ jobs:
                 statusOK = true;
 
                 if (statusOK) {
-                  if(contains(github.event.pull_request.labels.name, 'component:ui')){
+                  if(pull.labels.name == 'component:ui')){
                     uiBranches.push(branch)
                     uiPrs.push('#' + pull['number'] + ' ' + pull['title']);
                   }
-                  if(contains(github.event.pull_request.labels.name, 'component:api')){
+                  if(pull.labels.name == 'component:api')){
                     apiBranches.push(branchui)
                     apiPrs.push('#' + pull['number'] + ' ' + pull['title']);
                   }

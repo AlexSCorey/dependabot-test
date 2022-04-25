@@ -120,7 +120,7 @@ jobs:
         env:
           BASE_BRANCH: devel
           BRANCHES_TO_COMBINE: ${{ matrix.value.branches }}
-          COMBINE_BRANCH_NAME: ${{ matrix.value.combinedBranchName}}
+          COMBINE_BRANCH_NAME: ${{ matrix.value.combinedBranchName }}
         run: |
           echo "$BRANCHES_TO_COMBINE"
           sourcebranches="${BRANCHES_TO_COMBINE%\"}"
@@ -143,8 +143,8 @@ jobs:
         env:
           PR_STRINGS: ${{ matrix.value.prStrings }}
           BASE_BRANCH: devel
-          COMBINE_BRANCH_NAME: ${{ matrix.value.combinedBranchName}}
-          LABEL: ${{ matrix.value.label}}
+          COMBINE_BRANCH_NAME: ${{ matrix.value.combinedBranchName }}
+          LABEL: ${{ matrix.value.label }}
         with:
           github-token: ${{secrets.GITHUB_TOKEN}}
           script: |
@@ -154,8 +154,8 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               title: 'Combined PR',
-              head: '${{ COMBINE_BRANCH_NAME }}',
-              base: '${{ BASE_BRANCH }}',
+              head: '$COMBINE_BRANCH_NAME',
+              base: '$BASE_BRANCH',
               body: body
               labels:[${{ LABEL }}]
             });

@@ -54,6 +54,7 @@ jobs:
                 statusOK = true;
 
                 if (statusOK) {
+                  console.log(github.event.pull_request)
                   if(contains(github.event.pull_request.labels.*.name, 'component:ui')){
                     uiBranches.push(branch)
                     uiPrs.push('#' + pull['number'] + ' ' + pull['title']);

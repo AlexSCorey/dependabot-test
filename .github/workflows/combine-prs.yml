@@ -56,7 +56,7 @@ jobs:
                   uiPrs.push('#' + pull['number'] + ' ' + pull['title']);
                 }
 
-                if(pull.labels.*.name, 'component:api')){
+                if(contains(pull.labels.*.name, 'component:api')){
                   apiBranches.push(branchui)
                   apiPrs.push('#' + pull['number'] + ' ' + pull['title']);
                 }

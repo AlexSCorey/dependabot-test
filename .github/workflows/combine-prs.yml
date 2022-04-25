@@ -46,6 +46,7 @@ jobs:
                     repo: context.repo.repo,
                     ref: branch
                   });
+
                   # if(contains(github.event.pull_request.labels.*.name, 'nocombine')) {
                   #   console.log('Discarding ' + branch + ' with label ' + labelName);
                   #   statusOK = false;
@@ -123,3 +124,4 @@ jobs:
       #   run: |
       #     for (const pr of '${{ steps.fetch-branch-names.outputs.prs}}') {
       #       console.log(pr)
+

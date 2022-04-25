@@ -40,8 +40,8 @@ jobs:
             });
 
             branches = [];
-            uiBranches=[]
-            apiBranches
+            uiBranches=[];
+            apiBranches = [];
             uiPrs = [];
             apiPrs=[];
             base_branch = null;

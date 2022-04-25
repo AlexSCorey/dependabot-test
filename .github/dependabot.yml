@@ -5,8 +5,21 @@
 
 version: 2
 updates:
-  - package-ecosystem: "npm" # See documentation for possible values
+  - package-ecosystem: "npm@v8" # See documentation for possible values
     directory: "/awx/ui" # Location of package manifests
+    schedule:
+      interval: "daily"
+    allow:
+      # Allow both direct and indirect updates for all packages
+      - dependency-type: "direct"
+    reviewers:
+      - "AlexSCorey"
+    labels:
+      - "component:ui "
+      - "dependencies"
+    target-branch: "main"
+    - package-ecosystem: "pip" # See documentation for possible values
+    directory: "/" # Location of package manifests
     schedule:
       interval: "daily"
     reviewers:

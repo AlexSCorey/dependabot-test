@@ -50,7 +50,6 @@ jobs:
               const branch = pull['head']['ref'];
               console.log('Pull for branch: ' + branch);
               if (branch.startsWith('dependabot')) {
-
                 if(pull.labels.name == 'component:ui'){
                   uiBranches.push(branch)
                   uiPrs.push('#' + pull['number'] + ' ' + pull['title']);
@@ -63,7 +62,7 @@ jobs:
               }
             }
 
-            if (branches.length == 0) {
+            if (uiBranches.length == 0  && apiBranches.length == 0) {
               core.setFailed('No PRs/branches matched criteria');
               return;
             }

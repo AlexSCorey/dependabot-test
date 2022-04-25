@@ -2,10 +2,16 @@ name: "Combine PRs"
 
 # Controls when the action will run - in this case triggered manually
 on:
-  pull_request:
-    types:
-      - opened
-    branches: -'dependabot/**'
+  workflow_dispatch:
+    inputs:
+      branchPrefix:
+        description: "Branch prefix to find combinable PRs based on"
+        required: true
+        default: "dependabot"
+  # pull_request:
+  #   types:
+  #     - opened
+  #   branches: -'dependabot/**'
 
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
@@ -101,7 +107,7 @@ jobs:
     needs: [combine-prs]
     runs-on: ubuntu-latest
     strategy:
-      fetch-branch-names:
+      matrix:
         value: ${{needs.combine-prs.outputs.values}}
     steps:
       - name: Check out repo
@@ -113,8 +119,8 @@ jobs:
         id: combine-branch-name
         env:
           BASE_BRANCH: devel
-          BRANCHES_TO_COMBINE: ${{ value.branches }}
-          COMBINE_BRANCH_NAME: ${{ value.combinedBranchName}}
+          BRANCHES_TO_COMBINE: ${{ matrix.value.branches }}
+          COMBINE_BRANCH_NAME: ${{ matrix.value.combinedBranchName}}
         run: |
           echo "$BRANCHES_TO_COMBINE"
           sourcebranches="${BRANCHES_TO_COMBINE%\"}"
@@ -137,8 +143,8 @@ jobs:
         env:
           PR_STRINGS: ${{ value.prStrings }}
           BASE_BRANCH: devel
-          COMBINE_BRANCH_NAME: ${{ value.combinedBranchName}}
-          LABEL: ${{ value.label}}
+          COMBINE_BRANCH_NAME: ${{ matrix.value.combinedBranchName}}
+          LABEL: ${{ matrix.value.label}}
         with:
           github-token: ${{secrets.GITHUB_TOKEN}}
           script: |

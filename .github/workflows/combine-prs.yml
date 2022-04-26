@@ -82,7 +82,7 @@ jobs:
             const apiPrStrings = apiPrs.join('\n')
             const uiCombinedBranches = uiBranches.join(' ')
             const apiCombinedBranches = apiBranches.join(' ')
-            ::set-output name=values::{"values":[{"branches": $uiCombinedBranches}]}
+            ::set-output name=values::[{"branches": $uiCombinedBranches}]
         # echo ::set-output name=values::{\"values\":[{\"branches\": $uiCombinedBranches, \"prStrings\": $uiPrStrings, \"combinedBranchName\": \"UIDependencyUpgrade\",\"label\": \"component:ui\"}, {\"branches\": $apiCombinedBranches, \"prStrings\": $apiPrStrings, \"combinedBranchName\": \"APIDependencyUpgrade\", \"label\":\"component:api\"}]}
 
         # core.setOutput('values', [{branches: uiCombinedBranches, prStrings: uiPrStrings, combinedBranchName: 'UIDependencyUpgrade',label: "component:ui"}, {branches: apiCombinedBranches, prStrings: apiPrStrings, combinedBranchName: 'APIDependencyUpgrade', label:"component:api"}])

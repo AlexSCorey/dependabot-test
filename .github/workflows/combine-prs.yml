@@ -85,8 +85,9 @@ jobs:
 
 
 
+            echo ::set-output name=values::'{\"values\":$uiCombinedBranches}'
 
-            echo ::set-output name=values::'{\"values\":[{\"branches\": $uiCombinedBranches, \"prStrings\": $uiPrStrings, \"combinedBranchName\": \"UIDependencyUpgrade\",\"label\": \"component:ui\"}, {\"branches\": $apiCombinedBranches, \"prStrings\": $apiPrStrings, \"combinedBranchName\": \"APIDependencyUpgrade\", \"label\":\"component:api\"}]}'
+      # echo ::set-output name=values::'{\"values\":[{\"branches\": $uiCombinedBranches, \"prStrings\": $uiPrStrings, \"combinedBranchName\": \"UIDependencyUpgrade\",\"label\": \"component:ui\"}, {\"branches\": $apiCombinedBranches, \"prStrings\": $apiPrStrings, \"combinedBranchName\": \"APIDependencyUpgrade\", \"label\":\"component:api\"}]}'
     # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
   job2:
     needs: job1

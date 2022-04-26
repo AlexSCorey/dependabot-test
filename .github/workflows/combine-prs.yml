@@ -49,7 +49,7 @@ jobs:
             for (const pull of pulls) {
               const branch = pull['head']['ref'];
               console.log('Pull for branch: ' + branch);
-              const isUIPr = pull.labels.filter(label => labe.name == 'component:ui')
+              const isUIPr = pull.labels.filter(label => label.name == 'component:ui')
               console.log(isUIPr, 'Pull label name')
               if (branch.startsWith('dependabot')) {
                 if(contains(pull.labels.name, 'component:ui')){

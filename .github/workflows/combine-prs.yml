@@ -50,20 +50,25 @@ jobs:
               const branch = pull['head']['ref'];
               console.log('Pull for branch: ' + branch);
               isUIPr = false
+              isAPIPr = false
               for (const label of pull.labels){
               console.log(label, 'label name')
                 if(label.name == 'component:ui'){
                   isUIPr = true
                 }
+                iif(label.name == 'component:api'){
+                  isAPIPr = true
+                }
               }
-              console.log(isUIPr, 'isPR Label')
+              console.log(isUIPr, 'is UI PR Label')
+              console.log(isAPIPr, 'is API PR Label')
               if (branch.startsWith('dependabot')) {
-                if(contains(pull.labels.name, 'component:ui')){
+                if(isUIPr){
                   uiBranches.push(branch)
                   uiPrs.push('#' + pull['number'] + ' ' + pull['title']);
                 }
 
-                if(contains(pull.labels.name, 'component:api')){
+                if(isAPIPr){
                   apiBranches.push(branchui)
                   apiPrs.push('#' + pull['number'] + ' ' + pull['title']);
                 }

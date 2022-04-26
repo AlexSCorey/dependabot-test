@@ -51,7 +51,7 @@ jobs:
               console.log('Pull for branch: ' + branch);
               isUIPr = false
               for (const label of pull.labels){
-              console.log(labe, 'label name')
+              console.log(label, 'label name')
                 if(label.name == 'component:ui'){
                   isUIPr = true
                 }

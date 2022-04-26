@@ -49,18 +49,18 @@ jobs:
             for (const pull of pulls) {
               const branch = pull['head']['ref'];
               console.log('Pull for branch: ' + branch);
-              console.log(pull.labels, 'Pull')
-              # if (branch.startsWith('dependabot')) {
-              #   if(contains(pull.labels.*.name, 'component:ui')){
-              #     uiBranches.push(branch)
-              #     uiPrs.push('#' + pull['number'] + ' ' + pull['title']);
-              #   }
+              console.log(pull, 'Pull')
+              if (branch.startsWith('dependabot')) {
+                if(contains(pull.labels.name, 'component:ui')){
+                  uiBranches.push(branch)
+                  uiPrs.push('#' + pull['number'] + ' ' + pull['title']);
+                }
 
-              #   if(contains(pull.labels.*.name, 'component:api')){
-              #     apiBranches.push(branchui)
-              #     apiPrs.push('#' + pull['number'] + ' ' + pull['title']);
-              #   }
-              # }
+                if(contains(pull.labels.name, 'component:api')){
+                  apiBranches.push(branchui)
+                  apiPrs.push('#' + pull['number'] + ' ' + pull['title']);
+                }
+              }
             }
 
             if (uiBranches.length == 0  && apiBranches.length == 0) {

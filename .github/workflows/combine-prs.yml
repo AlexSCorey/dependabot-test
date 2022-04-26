@@ -35,59 +35,58 @@ jobs:
         uses: actions/github-script@v6
         with:
           github-token: ${{secrets.GITHUB_TOKEN}}
-        run: |
-          const pulls = await github.paginate('GET /repos/AlexSCorey/dependabot-test/pulls', {
-            owner: context.repo.owner,
-            repo: context.repo.repo
-          });
+          script: |
+            const pulls = await github.paginate('GET /repos/AlexSCorey/dependabot-test/pulls', {
+              owner: context.repo.owner,
+              repo: context.repo.repo
+            });
 
 
-          uiBranches=[];
-          apiBranches = [];
-          uiPrs = [];
-          apiPrs=[];
-          base_branch = null;
+            const uiBranches=[];
+            const apiBranches = [];
+            let uiPrs = [];
+            let apiPrs=[];
 
-          for (const pull of pulls) {
-            const branch = pull['head']['ref'];
-            isUIPr = false
-            isAPIPr = false
-            for (const label of pull.labels){
-              if(label.name == 'component:ui'){
-                isUIPr = true
+            for (const pull of pulls) {
+              const branch = pull['head']['ref'];
+              const isUIPr = false
+              const isAPIPr = false
+              for (const label of pull.labels){
+                if(label.name == 'component:ui'){
+                  isUIPr = true
+                }
+                if(label.name == 'component:api'){
+                  isAPIPr = true
+                }
               }
-              if(label.name == 'component:api'){
-                isAPIPr = true
+              if (branch.startsWith('dependabot')) {
+                if(isUIPr){
+                  uiBranches.push(branch)
+                  uiPrs.push('#' + pull['number'] + ' ' + pull['title']);
+                }
+
+                if(isAPIPr){
+                  apiBranches.push(branch)
+                  apiPrs.push('#' + pull['number'] + ' ' + pull['title']);
+                }
               }
             }
-            if (branch.startsWith('dependabot')) {
-              if(isUIPr){
-                uiBranches.push(branch)
-                uiPrs.push('#' + pull['number'] + ' ' + pull['title']);
-              }
 
-              if(isAPIPr){
-                apiBranches.push(branch)
-                apiPrs.push('#' + pull['number'] + ' ' + pull['title']);
-              }
+            if (uiBranches.length == 0  && apiBranches.length == 0) {
+              core.setFailed('No PRs/branches matched criteria');
+              return;
             }
-          }
-
-          if (uiBranches.length == 0  && apiBranches.length == 0) {
-            core.setFailed('No PRs/branches matched criteria');
-            return;
-          }
 
 
-          const uiPrStrings = uiPrs.join('\n')
-          const apiPrStrings = apiPrs.join('\n')
-          const uiCombinedBranches = uiBranches.join(' ')
-          const apiCombinedBranches = apiBranches.join(' ')
+            const uiPrStrings = uiPrs.join('\n')
+            const apiPrStrings = apiPrs.join('\n')
+            const uiCombinedBranches = uiBranches.join(' ')
+            const apiCombinedBranches = apiBranches.join(' ')
 
 
 
 
-          echo "::set-output name=values::{\"values\":[{\"branches\": uiCombinedBranches, \"prStrings\": uiPrStrings, \"combinedBranchName\": \"UIDependencyUpgrade\",\"label\": \"component:ui\"}, {\"branches\": apiCombinedBranches, \"prStrings\": apiPrStrings, \"combinedBranchName\": \"APIDependencyUpgrade\", \"label\":\"component:api\"}]}"
+            echo "::set-output name=values::{\"values\":[{\"branches\": uiCombinedBranches, \"prStrings\": uiPrStrings, \"combinedBranchName\": \"UIDependencyUpgrade\",\"label\": \"component:ui\"}, {\"branches\": apiCombinedBranches, \"prStrings\": apiPrStrings, \"combinedBranchName\": \"APIDependencyUpgrade\", \"label\":\"component:api\"}]}"
     # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
   job2:
     needs: job1

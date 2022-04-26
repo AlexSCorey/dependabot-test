@@ -52,11 +52,11 @@ jobs:
               isUIPr = false
               isAPIPr = false
               for (const label of pull.labels){
-              console.log(label, 'label name')
+                console.log(label, 'label name')
                 if(label.name == 'component:ui'){
                   isUIPr = true
                 }
-                iif(label.name == 'component:api'){
+                if(label.name == 'component:api'){
                   isAPIPr = true
                 }
               }
@@ -69,7 +69,7 @@ jobs:
                 }
 
                 if(isAPIPr){
-                  apiBranches.push(branchui)
+                  apiBranches.push(branch)
                   apiPrs.push('#' + pull['number'] + ' ' + pull['title']);
                 }
               }

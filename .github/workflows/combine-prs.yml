@@ -28,7 +28,7 @@ jobs:
   job1:
     runs-on: ubuntu-latest
     outputs:
-      matrix: ${{ steps.fetch-branch-names}}
+      matrix: ${{ steps.fetch-branch-names.outputs.values}}
     steps:
       - name: Fetch branch names
         id: fetch-branch-names
@@ -84,7 +84,7 @@ jobs:
             uiCombinedBranches = uiBranches.join(' ')
             apiCombinedBranches = apiBranches.join(' ')
 
-            echo "::set-output name=values::{\"values\":[{\"branches\": \${{uiCombinedBranches}}\, \"prStrings\": \"${{uiPrStrings}}\", \"combinedBranchName\": \"UIDependencyUpgrade\", \"label\": \"component:ui\"}, {\"branches\": \${{apiCombinedBranches}}\, \"prStrings\": \"${{apiPrStrings}}\", \"combinedBranchName\": \"APIDependencyUpgrade\", \"label\":\"component:api\"}]}
+            echo "::set-output name=values::{\"values\":[{\"branches\": \${{uiCombinedBranches}}\, \"prStrings\": \"${{uiPrStrings}}\", \"combinedBranchName\": \"UIDependencyUpgrade\",\"label\": \"component:ui\"}, {\"branches\": \${{apiCombinedBranches}}\, \"prStrings\": \"${{apiPrStrings}}\", \"combinedBranchName\": \"APIDependencyUpgrade\", \"label\":\"component:api\"}]}
     # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
   job2:
     needs: job1

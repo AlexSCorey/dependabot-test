@@ -49,8 +49,8 @@ jobs:
 
             for (const pull of pulls) {
               const branch = pull['head']['ref'];
-              const isUIPr = false
-              const isAPIPr = false
+              let isUIPr = false
+              let isAPIPr = false
               for (const label of pull.labels){
                 if(label.name == 'component:ui'){
                   isUIPr = true

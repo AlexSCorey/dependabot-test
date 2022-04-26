@@ -89,7 +89,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        value: ${{needs.combine-prs.outputs.values}}
+        value: ${{fromJSON(needs.combine-prs.outputs.values)}}
     steps:
       - name: Check out repo
         uses: actions/checkout@v3

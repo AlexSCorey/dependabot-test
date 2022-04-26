@@ -48,11 +48,9 @@ jobs:
 
             for (const pull of pulls) {
               const branch = pull['head']['ref'];
-              console.log('Pull for branch: ' + branch);
               isUIPr = false
               isAPIPr = false
               for (const label of pull.labels){
-                console.log(label, 'label name')
                 if(label.name == 'component:ui'){
                   isUIPr = true
                 }
@@ -60,8 +58,6 @@ jobs:
                   isAPIPr = true
                 }
               }
-              console.log(isUIPr, 'is UI PR Label')
-              console.log(isAPIPr, 'is API PR Label')
               if (branch.startsWith('dependabot')) {
                 if(isUIPr){
                   uiBranches.push(branch)
@@ -86,7 +82,7 @@ jobs:
             uiCombinedBranches = uiBranches.join(' ')
             apiCombinedBranches = apiBranches.join(' ')
 
-            core.setOutput('values', [{branches: uiCombinedBranches, prStrings: uiPrStrings, combinedBranchName: UIDependencyUpgrade, label: 'component:ui'}, {branches: apiCombinedBranches, prStrings: apiPrStrings, combinedBranchName: APIDependencyUpgrade, label:'component:api'}])
+            core.setOutput('values', [{branches: uiCombinedBranches, prStrings: uiPrStrings, combinedBranchName: 'UIDependencyUpgrade', label: 'component:ui'}, {branches: apiCombinedBranches, prStrings: apiPrStrings, combinedBranchName: 'APIDependencyUpgrade', label:'component:api'}])
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
   build:
     needs: [combine-prs]

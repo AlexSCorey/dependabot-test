@@ -36,7 +36,7 @@ jobs:
         with:
           github-token: ${{secrets.GITHUB_TOKEN}}
           script: |
-            const pulls = await github.rest.search.isIssueAndPullRequest('GET /repos/AlexSCorey/dependabot-test/pulls', {
+            const pulls = await github.rest.search.issuesAndPullRequests({
               owner: context.repo.owner,
               repo: 'AlexSCorey/dependabot-test',
               label: 'component:ui',

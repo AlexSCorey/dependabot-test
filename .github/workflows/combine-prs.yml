@@ -54,8 +54,6 @@ jobs:
             prs = [];
             for (const pull of pulls.data.items) {
             console.log(pull,'a single PR')
-              const branch = pull['head']['ref'];
-              branches.push(branch);
               prs.push('#' + pull['number'] + ' ' + pull['title']);
             }
 
@@ -63,9 +61,15 @@ jobs:
               core.setFailed('No PRs/branches matched criteria');
               return;
             }
-            if (${{ matrix.search_labels}} == "label:component:api+label:dependencies"){
+            if (${{ matrix.search_labels}} == "api"){
               combinedBranchName = 'ApiDependencyBumpCreatedByDependabot'
               title = 'API dependency bump created by dependabot'
+            }
+
+            for (branch of pulls.data.items){
+              const pr = await request('GET', branch.pull_request.url)
+
+              branches.push(pr.data['head']['ref'])
             }
 
 

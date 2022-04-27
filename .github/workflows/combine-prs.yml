@@ -48,34 +48,6 @@ jobs:
               q:"dependabot+repo:AlexSCorey/dependabot-test+is:pr+label:component:api+label:dependencies"
             });
 
-            combinedBranchName = "UIDependencyBumpCreatedbyDependbot"
-            title = 'UI dependency bump created by dependabot'
-            branches = [];
-            prs = [];
-            for (const pull of pulls.data.items) {
-              prs.push('#' + pull['number'] + ' ' + pull['title']);
-
-
-              const pr = await github.request("GET /repos/AlexSCorey/dependabot-test/pulls/{id}",{id:pull.number})
-
-              console.log(pr, 'Pull request')
-              branches.push(pr.data['head']['ref'])
-            }
-
-            if (branches.length == 0) {
-              core.setFailed('No PRs/branches matched criteria');
-              return;
-            }
-            if ("${{ matrix.search_labels }}" == "api"){
-              combinedBranchName = 'ApiDependencyBumpCreatedByDependabot'
-              title = 'API dependency bump created by dependabot'
-            }
-
-
-
-            combinedBranches = branches.join(' ')
-            prStrings = prs.join('\n')
-            let returnValue = {  combinedBranchName: combinedBranchName, title: title}
             return pulls
       - name: Create Combined Branches
         id: create-combined-branches
@@ -102,11 +74,11 @@ jobs:
         id: create-combined-branch-name
         uses: actions/github-script@v6
         script: |
-          branchName = UIDependencyBumpCreatedbyDependbot
+          branchName = 'UIDependencyBumpCreatedbyDependbot'
           if ("${{ matrix.search_labels }}" == "api"){
               combinedBranchName = 'ApiDependencyBumpCreatedByDependabot'
             }
-            return branchName
+          return branchName
       - name: Create Labels for new PR
         id: create-labels-for-new-pr
         uses: actions/github-script@v6
@@ -128,7 +100,7 @@ jobs:
         env:
           BASE_BRANCH: devel
           BRANCHES_TO_COMBINE: ${{ steps.create-combined-branches.outputs.result }}
-          COMBINE_BRANCH_NAME: ${{ steps.crete-combined-branch-name.outputs.result}}
+          COMBINE_BRANCH_NAME: ${{ steps.create-combined-branch-name.outputs.result}}
         run: |
           echo "$BRANCHES_TO_COMBINE"
           sourcebranches="${BRANCHES_TO_COMBINE%\"}"
@@ -150,7 +122,6 @@ jobs:
         uses: actions/github-script@v3
         env:
           PR_STRINGS: ${{ steps.join-pr-title-strings.outputs.result }}
-          LABEL: ${{ matrix.search_labels }}
         with:
           github-token: ${{secrets.GITHUB_TOKEN}}
           script: |
@@ -163,7 +134,7 @@ jobs:
               head: ${{ env.COMBINE_BRANCH_NAME }},
               base: ${{ env.BASE_BRANCH }},
               body: body
-              labels:[{{ LABEL }}]
+              labels:[${{ steps.create-labels-for-new-pr.outputs.result }}]
             });
       # - name: Close PRs that were combined
       #   run: |

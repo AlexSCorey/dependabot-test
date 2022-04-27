@@ -74,7 +74,8 @@ jobs:
 
             combinedBranches = branches.join(' ')
             prStrings = prs.join('\n')
-            return {combinedBranches, prStrings, combinedBranchName, title}
+            let returnValue = {combinedBranches: combinedBranches, prStrings: prStrings, combinedBranchName: combinedBranchName, title: title}
+            return returnValue
 
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - name: Check out repo

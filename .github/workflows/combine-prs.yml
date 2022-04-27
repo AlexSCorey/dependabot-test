@@ -110,20 +110,16 @@ jobs:
           COMBINE_BRANCH_NAME: "${{ steps.create-combined-branch-name.outputs.result}}"
         run: |
 
-          sourcebranches="${BRANCHES_TO_COMBINE%\"}"
-          sourcebranches="${sourcebranches#\"}"
 
-          basebranch="main"
-          basebranch="${basebranch#\"}"
 
           git config pull.rebase false
           git config user.name github-actions
           git config user.email github-actions@github.com
 
-          git branch $COMBINE_BRANCH_NAME $basebranch
-          git checkout $COMBINE_BRANCH_NAME
-          git pull origin $sourcebranches --no-edit
-          git push origin $COMBINE_BRANCH_NAME
+          git branch ${{ steps.create-combined-branch-name.outputs.result}} $basebranch
+          git checkout ${{ steps.create-combined-branch-name.outputs.result}}
+          git pull origin ${{ steps.create-combined-branches.outputs.result}} --no-edit
+          git push origin ${{ steps.create-combined-branch-name.outputs.result}}
 
       - name: Create Combined Pull Request
         uses: actions/github-script@v3

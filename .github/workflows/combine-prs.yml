@@ -70,8 +70,8 @@ jobs:
           script: |
             prs = []
             for(const pull of ${{ steps.fetch-prs.outputs.result}}){
-              const pull = await github.request("GET /repos/AlexSCorey/dependabot-test/pulls/{id}",{id:pull.number})
-              prs.push('#' + pull['number'] + ' ' + pull['title']);
+              const response = await github.request("GET /repos/AlexSCorey/dependabot-test/pulls/{id}",{id:pull.number})
+              prs.push('#' + response['number'] + ' ' + response['title']);
             }
             return prs
       - name: Create Combined Branch Name

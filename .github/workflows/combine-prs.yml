@@ -52,42 +52,50 @@ jobs:
       - name: Create Combined Branches
         id: create-combined-branches
         uses: actions/github-script@v6
-        script: |
-          branches = []
-          for(const pull of ${{ steps.fetch-prs.outputs.result}}){
-            const pr = await github.request("GET /repos/AlexSCorey/dependabot-test/pulls/{id}",{id:pull.number})
-            branches.push(pr.data['head']['ref'])
-          }
-          joinedBranches = branches.join(" ")
-          return joinedBranches
+        with:
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          script: |
+            branches = []
+            for(const pull of ${{ steps.fetch-prs.outputs.result}}){
+              const pr = await github.request("GET /repos/AlexSCorey/dependabot-test/pulls/{id}",{id:pull.number})
+              branches.push(pr.data['head']['ref'])
+            }
+            joinedBranches = branches.join(" ")
+            return joinedBranches
       - name: Join Pr Title Strings
         id: join-pr-title-strings
         uses: actions/github-script@v6
-        script: |
-          prs = []
-          for(const pull of ${{ steps.fetch-prs.outputs.result}}){
-            const pull = await github.request("GET /repos/AlexSCorey/dependabot-test/pulls/{id}",{id:pull.number})
-            prs.push('#' + pull['number'] + ' ' + pull['title']);
-          }
-          return prs
+        with:
+          github_token: ${{secrets.GITHUB_TOKEN}}
+          script: |
+            prs = []
+            for(const pull of ${{ steps.fetch-prs.outputs.result}}){
+              const pull = await github.request("GET /repos/AlexSCorey/dependabot-test/pulls/{id}",{id:pull.number})
+              prs.push('#' + pull['number'] + ' ' + pull['title']);
+            }
+            return prs
       - name: Create Combined Branch Name
         id: create-combined-branch-name
         uses: actions/github-script@v6
-        script: |
-          branchName = 'UIDependencyBumpCreatedbyDependbot'
-          if ("${{ matrix.search_labels }}" == "api"){
-              combinedBranchName = 'ApiDependencyBumpCreatedByDependabot'
-            }
-          return branchName
+        with:
+          github_token: ${{secrets.GITHUB_TOKEN}}
+          script: |
+            branchName = 'UIDependencyBumpCreatedbyDependbot'
+            if ("${{ matrix.search_labels }}" == "api"){
+                combinedBranchName = 'ApiDependencyBumpCreatedByDependabot'
+              }
+            return branchName
       - name: Create Labels for new PR
         id: create-labels-for-new-pr
         uses: actions/github-script@v6
-        script: |
-          label = 'label:component:ui+label:dependencies'
-          if ("${{ matrix.search_labels }}" == "api"){
-              label = 'label:component:api+label:dependencies'
-            }
-          return label
+        with:
+          github_token: ${{secrets.GITHUB_TOKEN}}
+          script: |
+            label = 'label:component:ui+label:dependencies'
+            if ("${{ matrix.search_labels }}" == "api"){
+                label = 'label:component:api+label:dependencies'
+              }
+            return label
 
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - name: Check out repo

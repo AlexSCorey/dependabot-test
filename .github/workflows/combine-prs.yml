@@ -56,7 +56,6 @@ jobs:
               prs.push('#' + pull['number'] + ' ' + pull['title']);
 
 
-              console.log(pull,'a single PR')
               const pr = await github.request("GET /repos/AlexSCorey/dependabot-test/pulls/{id}",{id:pull.number})
 
               branches.push(pr.data['head']['ref'])
@@ -75,7 +74,6 @@ jobs:
 
             combinedBranches = branches.join(' ')
             prStrings = prs.join('\n')
-            console.log('Combined: ' + combined);
             return {combinedBranches, prStrings, combinedBranchName, title}
 
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it

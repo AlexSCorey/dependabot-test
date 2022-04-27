@@ -38,12 +38,12 @@ jobs:
           github-token: ${{secrets.GITHUB_TOKEN}}
           script: |
             let pulls
-            if(${{matric.search_labels}} === 'ui')
+            if(${{matrix.search_labels}} === 'ui')
             pulls = await github.rest.search.issuesAndPullRequests({
               q:"dependabot+repo:AlexSCorey/dependabot-test+is:pr+label:component:ui+label:dependencies"
             });
 
-            if(${{matric.search_labels}} === 'api')
+            if(${{matrix.search_labels}} === 'api')
             pulls = await github.rest.search.issuesAndPullRequests({
               q:"dependabot+repo:AlexSCorey/dependabot-test+is:pr+label:component:api+label:dependencies"
             });

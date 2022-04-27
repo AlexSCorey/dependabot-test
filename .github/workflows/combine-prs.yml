@@ -36,54 +36,58 @@ jobs:
         with:
           github-token: ${{secrets.GITHUB_TOKEN}}
           script: |
-            const pulls = await github.paginate('GET /repos/AlexSCorey/dependabot-test/pulls', {
+            const pulls = await github.rest.search.isIssueAndPullRequest('GET /repos/AlexSCorey/dependabot-test/pulls', {
               owner: context.repo.owner,
-              repo: context.repo.repo
+              repo: 'AlexSCorey/dependabot-test',
+              label: 'component:ui',
+              label: 'dependencies',
+              is: pr
             });
 
+            console.log(pulls,'All Pull requests')
 
-            const uiBranches=[];
-            const apiBranches = [];
-            let uiPrs = [];
-            let apiPrs=[];
+          # const uiBranches=[];
+          # const apiBranches = [];
+          # let uiPrs = [];
+          # let apiPrs=[];
 
-            for (const pull of pulls) {
-              const branch = pull['head']['ref'];
-              let isUIPr = false
-              let isAPIPr = false
-              for (const label of pull.labels){
-                if(label.name == 'component:ui'){
-                  isUIPr = true
-                }
-                if(label.name == 'component:api'){
-                  isAPIPr = true
-                }
-              }
-              if (branch.startsWith('dependabot')) {
-                if(isUIPr){
-                  uiBranches.push(branch)
-                  uiPrs.push('#' + pull['number'] + ' ' + pull['title']);
-                }
+          # for (const pull of pulls) {
+          #   const branch = pull['head']['ref'];
+          #   let isUIPr = false
+          #   let isAPIPr = false
+          #   for (const label of pull.labels){
+          #     if(label.name == 'component:ui'){
+          #       isUIPr = true
+          #     }
+          #     if(label.name == 'component:api'){
+          #       isAPIPr = true
+          #     }
+          #   }
+          #   if (branch.startsWith('dependabot')) {
+          #     if(isUIPr){
+          #       uiBranches.push(branch)
+          #       uiPrs.push('#' + pull['number'] + ' ' + pull['title']);
+          #     }
 
-                if(isAPIPr){
-                  apiBranches.push(branch)
-                  apiPrs.push('#' + pull['number'] + ' ' + pull['title']);
-                }
-              }
-            }
+          #     if(isAPIPr){
+          #       apiBranches.push(branch)
+          #       apiPrs.push('#' + pull['number'] + ' ' + pull['title']);
+          #     }
+          #   }
+          # }
 
-            if (uiBranches.length == 0  && apiBranches.length == 0) {
-              core.setFailed('No PRs/branches matched criteria');
-              return;
-            }
+          # if (uiBranches.length == 0  && apiBranches.length == 0) {
+          #   core.setFailed('No PRs/branches matched criteria');
+          #   return;
+          # }
 
+          # const uiPrStrings = uiPrs.join('\n')
+          # const apiPrStrings = apiPrs.join('\n')
+          # const uiCombinedBranches = uiBranches.join(' ')
+          # const apiCombinedBranches = apiBranches.join(' ')
 
-            const uiPrStrings = uiPrs.join('\n')
-            const apiPrStrings = apiPrs.join('\n')
-            const uiCombinedBranches = uiBranches.join(' ')
-            const apiCombinedBranches = apiBranches.join(' ')
-            ::set-output name=values::[{$uiCombinedBranches}];
-        # echo ::set-output name=values::{\"values\":[{\"branches\": $uiCombinedBranches, \"prStrings\": $uiPrStrings, \"combinedBranchName\": \"UIDependencyUpgrade\",\"label\": \"component:ui\"}, {\"branches\": $apiCombinedBranches, \"prStrings\": $apiPrStrings, \"combinedBranchName\": \"APIDependencyUpgrade\", \"label\":\"component:api\"}]}
+        # echo ::set-output name=values::[{$uiCombinedBranches}];
+        # echo '::set-output name=values::{\"values\":[{\"branches\": $uiCombinedBranches, \"prStrings\": $uiPrStrings, \"combinedBranchName\": \"UIDependencyUpgrade\",\"label\": \"component:ui\"}, {\"branches\": $apiCombinedBranches, \"prStrings\": $apiPrStrings, \"combinedBranchName\": \"APIDependencyUpgrade\", \"label\":\"component:api\"}]}'
 
         # core.setOutput('values', [{branches: uiCombinedBranches, prStrings: uiPrStrings, combinedBranchName: 'UIDependencyUpgrade',label: "component:ui"}, {branches: apiCombinedBranches, prStrings: apiPrStrings, combinedBranchName: 'APIDependencyUpgrade', label:"component:api"}])
         # echo ::set-output name=values::'{values:$uiCombinedBranches}'

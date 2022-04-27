@@ -54,10 +54,10 @@ jobs:
             prs = [];
             for (const pull of pulls.data.items) {
               prs.push('#' + pull['number'] + ' ' + pull['title']);
-            }
-            for (branch of pulls.data.items){
-            console.log(branch,'a single PR')
-              const pr = await github.request("GET /repos/AlexSCorey/dependabot-test/pulls/{id}",{id:"${{ branch.number }}"})
+
+
+              console.log(pull,'a single PR')
+              const pr = await github.request("GET /repos/AlexSCorey/dependabot-test/pulls/{id}",{id:"${{ pull.number }}"})
 
               branches.push(pr.data['head']['ref'])
             }

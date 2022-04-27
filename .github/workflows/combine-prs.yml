@@ -118,7 +118,7 @@ jobs:
               head: ${{ env.COMBINE_BRANCH_NAME }},
               base: ${{ env.BASE_BRANCH }},
               body: body
-              labels:[${{ LABEL }}]
+              labels:[{{ LABEL }}]
             });
       # - name: Close PRs that were combined
       #   run: |

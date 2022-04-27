@@ -48,12 +48,12 @@ jobs:
               q:"dependabot+repo:AlexSCorey/dependabot-test+is:pr+label:component:api+label:dependencies"
             });
 
-            console.log(pulls,'All Pull requests')
             combinedBranchName = "UIDependencyBumpCreatedbyDependbot"
             title = 'UI dependency bump created by dependabot'
             branches = [];
             prs = [];
             for (const pull of pulls.data.items) {
+            console.log(pull,'a single PR')
               const branch = pull['head']['ref'];
               branches.push(branch);
               prs.push('#' + pull['number'] + ' ' + pull['title']);

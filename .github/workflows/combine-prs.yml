@@ -36,11 +36,15 @@ jobs:
         with:
           github-token: ${{secrets.GITHUB_TOKEN}}
           script: |
-            const pulls = await github.rest.search.issuesAndPullRequests({
+            const uipulls = await github.rest.search.issuesAndPullRequests({
               q:'dependabot+repo:AlexSCorey/dependabot-test+label:component:ui+label:dependencies+is:pr'
             });
 
-            console.log(pulls,'All Pull requests')
+            const apipulls = await github.rest.search.issuesAndPullRequests({
+              q:'dependabot+repo:AlexSCorey/dependabot-test+label:component:api+label:dependencies+is:pr'
+            });
+
+            console.log(uipulls, apipulls,'All Pull requests')
 
           # const uiBranches=[];
           # const apiBranches = [];

@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        search_labels: ["ui"]
+        search_labels: ["ui", "api"]
     steps:
       - name: Fetch branch names
         id: fetch-prs

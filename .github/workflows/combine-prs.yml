@@ -25,7 +25,7 @@ jobs:
   #       - "dependabot/**"
 
   # Steps represent a sequence of tasks that will be executed as part of the job
-  Get_Prs:
+  Component_types:
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -36,7 +36,7 @@ jobs:
           ]
     steps:
       - name: Fetch branch names
-        id: fetch-branch-names
+        id: fetch-prs
         uses: actions/github-script@v6
         with:
           github-token: ${{secrets.GITHUB_TOKEN}}
@@ -45,61 +45,34 @@ jobs:
               q:'dependabot+repo:AlexSCorey/dependabot-test+is:pr+${{matrix.search_labels}}'
             });
 
-            console.log(pulls, apipulls,'All Pull requests')
+            console.log(pulls,'All Pull requests')
+            combinedBranchName = "UIDependencyBumpCreatedbyDependbot"
+            title = 'UI dependency bump created by dependabot'
+            branches = [];
+            prs = [];
+            for (const pull of pulls) {
+              const branch = pull['head']['ref'];
+              branches.push(branch);
+              prs.push('#' + pull['number'] + ' ' + pull['title']);
+            }
 
-          # const uiBranches=[];
-          # const apiBranches = [];
-          # let uiPrs = [];
-          # let apiPrs=[];
+            if (branches.length == 0) {
+              core.setFailed('No PRs/branches matched criteria');
+              return;
+            }
+            if (${{ matrix.search_labels}} == "label:component:api+label:dependencies"){
+              combinedBranchName = 'ApiDependencyBumpCreatedByDependabot'
+              title = 'API dependency bump created by dependabot'
+            }
 
-          # for (const pull of pulls) {
-          #   const branch = pull['head']['ref'];
-          #   let isUIPr = false
-          #   let isAPIPr = false
-          #   for (const label of pull.labels){
-          #     if(label.name == 'component:ui'){
-          #       isUIPr = true
-          #     }
-          #     if(label.name == 'component:api'){
-          #       isAPIPr = true
-          #     }
-          #   }
-          #   if (branch.startsWith('dependabot')) {
-          #     if(isUIPr){
-          #       uiBranches.push(branch)
-          #       uiPrs.push('#' + pull['number'] + ' ' + pull['title']);
-          #     }
 
-          #     if(isAPIPr){
-          #       apiBranches.push(branch)
-          #       apiPrs.push('#' + pull['number'] + ' ' + pull['title']);
-          #     }
-          #   }
-          # }
 
-          # if (uiBranches.length == 0  && apiBranches.length == 0) {
-          #   core.setFailed('No PRs/branches matched criteria');
-          #   return;
-          # }
+            combinedBranches = branches.join(' ')
+            prStrings = prs.join('\n')
+            console.log('Combined: ' + combined);
+            return {combinedBranches, prStrings, combinedBranchName, title}
 
-          # const uiPrStrings = uiPrs.join('\n')
-          # const apiPrStrings = apiPrs.join('\n')
-          # const uiCombinedBranches = uiBranches.join(' ')
-          # const apiCombinedBranches = apiBranches.join(' ')
-
-        # echo ::set-output name=values::[{$uiCombinedBranches}];
-        # echo '::set-output name=values::{\"values\":[{\"branches\": $uiCombinedBranches, \"prStrings\": $uiPrStrings, \"combinedBranchName\": \"UIDependencyUpgrade\",\"label\": \"component:ui\"}, {\"branches\": $apiCombinedBranches, \"prStrings\": $apiPrStrings, \"combinedBranchName\": \"APIDependencyUpgrade\", \"label\":\"component:api\"}]}'
-
-        # core.setOutput('values', [{branches: uiCombinedBranches, prStrings: uiPrStrings, combinedBranchName: 'UIDependencyUpgrade',label: "component:ui"}, {branches: apiCombinedBranches, prStrings: apiPrStrings, combinedBranchName: 'APIDependencyUpgrade', label:"component:api"}])
-        # echo ::set-output name=values::'{values:$uiCombinedBranches}'
-
-    # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-  job2:
-    needs: Get_Prs
-    runs-on: ubuntu-latest
-    strategy:
-      matrix: ${{needs.Get_Prs.outputs.values}}
-    steps:
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - name: Check out repo
         uses: actions/checkout@v3
         with:
@@ -109,8 +82,8 @@ jobs:
         id: combine-branch-name
         env:
           BASE_BRANCH: devel
-          BRANCHES_TO_COMBINE: ${{ matrix.branches }}
-          COMBINE_BRANCH_NAME: ${{ matrix.combinedBranchName }}
+          BRANCHES_TO_COMBINE: ${{ steps.fetch-prs.outputs.result.combinedBranches }}
+          COMBINE_BRANCH_NAME: ${{ steps.fetch-prs.outputs.result.combinedBranchName }}
         run: |
           echo "$BRANCHES_TO_COMBINE"
           sourcebranches="${BRANCHES_TO_COMBINE%\"}"
@@ -131,10 +104,8 @@ jobs:
       - name: Create Combined Pull Request
         uses: actions/github-script@v3
         env:
-          BASE_BRANCH: devel
-          PR_STRINGS: ${{ matrix.prStrings }}
-          COMBINE_BRANCH_NAME: ${{ matrix.combinedBranchName }}
-          LABEL: ${{ matrix.label }}
+          PR_STRINGS: ${{ steps.fetch.prs.outputs.result.prStrings }}
+          LABEL: ${{ matrix.search_labels }}
         with:
           github-token: ${{secrets.GITHUB_TOKEN}}
           script: |
@@ -147,7 +118,7 @@ jobs:
               head: ${{ env.COMBINE_BRANCH_NAME }},
               base: ${{ env.BASE_BRANCH }},
               body: body
-              labels:[${{ env.LABEL }}]
+              labels:[${{ LABEL }}]
             });
       # - name: Close PRs that were combined
       #   run: |

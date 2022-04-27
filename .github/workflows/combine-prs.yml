@@ -121,10 +121,10 @@ jobs:
           git config user.name github-actions
           git config user.email github-actions@github.com
 
-          git branch ${{ steps.create-combined-branch-name.outputs.result}} main
-          git checkout ${{ steps.create-combined-branch-name.outputs.result}}
+          git branch $COMBINE_BRANCH_NAME main
+          git checkout $COMBINE_BRANCH_NAME
           git pull origin ${{ steps.create-combined-branches.outputs.result}} --no-edit
-          git push origin ${{ steps.create-combined-branch-name.outputs.result}}
+          git push origin $COMBINE_BRANCH_NAME
 
       - name: Create Combined Pull Request
         uses: actions/github-script@v3

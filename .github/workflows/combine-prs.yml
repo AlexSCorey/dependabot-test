@@ -38,12 +38,12 @@ jobs:
           github-token: ${{secrets.GITHUB_TOKEN}}
           script: |
             let pulls
-            if("${{matrix.search_labels}}" == 'ui')
+            if("${{matrix.search_labels}}" == "ui")
             pulls = await github.rest.search.issuesAndPullRequests({
               q:"dependabot+repo:AlexSCorey/dependabot-test+is:pr+label:component:ui+label:dependencies"
             });
 
-            if("${{matrix.search_labels}}" === 'api')
+            if("${{matrix.search_labels}}" === "api")
             pulls = await github.rest.search.issuesAndPullRequests({
               q:"dependabot+repo:AlexSCorey/dependabot-test+is:pr+label:component:api+label:dependencies"
             });
@@ -66,7 +66,7 @@ jobs:
               core.setFailed('No PRs/branches matched criteria');
               return;
             }
-            if (${{ matrix.search_labels}} == "api"){
+            if ("${{ matrix.search_labels }}" == "api"){
               combinedBranchName = 'ApiDependencyBumpCreatedByDependabot'
               title = 'API dependency bump created by dependabot'
             }

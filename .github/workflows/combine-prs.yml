@@ -95,10 +95,10 @@ jobs:
 
     # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
   job2:
-    needs: job1
+    needs: Get_Prs
     runs-on: ubuntu-latest
     strategy:
-      matrix: ${{needs.job1.outputs.values}}
+      matrix: ${{needs.Get_Prs.outputs.values}}
     steps:
       - name: Check out repo
         uses: actions/checkout@v3

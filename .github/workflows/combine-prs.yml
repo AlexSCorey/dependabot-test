@@ -116,8 +116,8 @@ jobs:
         run: |
 
 
-      # echo "$BRANCHES_TO_COMBINE"
-      # echo "check branches"
+          # echo "$BRANCHES_TO_COMBINE"
+          # echo "check branches"
           sourcebranches="${BRANCHES_TO_COMBINE%\"}"
           sourcebranches="${sourcebranches#\"}"
 

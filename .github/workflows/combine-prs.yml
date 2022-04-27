@@ -56,11 +56,12 @@ jobs:
           github-token: ${{secrets.GITHUB_TOKEN}}
           script: |
             branches = []
+            let base_branch
             for(const pull of ${{ steps.fetch-prs.outputs.result}}){
               const pr = await github.request("GET /repos/AlexSCorey/dependabot-test/pulls/{id}",{id:pull.number})
               branches.push(pr.data['head']['ref'])
-            }
             base_branch = pr.data['base']['ref']
+            }
             core.setOutput('base-branch', base_branch);
             joinedBranches = branches.join(" ")
             return joinedBranches

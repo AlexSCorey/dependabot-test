@@ -57,6 +57,8 @@ jobs:
 
 
               const pr = await github.request("GET /repos/AlexSCorey/dependabot-test/pulls/{id}",{id:pull.number})
+
+              console.log(pr, 'Pull request')
               branches.push(pr.data['head']['ref'])
             }
 
@@ -73,8 +75,47 @@ jobs:
 
             combinedBranches = branches.join(' ')
             prStrings = prs.join('\n')
-            let returnValue = {combinedBranches: combinedBranches, prStrings: prStrings, combinedBranchName: combinedBranchName, title: title}
-            return combinedBranches
+            let returnValue = {  combinedBranchName: combinedBranchName, title: title}
+            return pulls
+      - name: Create Combined Branches
+        id: create-combined-branches
+        uses: actions/github-script@v6
+        script: |
+          branches = []
+          for(const pull of ${{ steps.fetch-prs.outputs.result}}){
+            const pr = await github.request("GET /repos/AlexSCorey/dependabot-test/pulls/{id}",{id:pull.number})
+            branches.push(pr.data['head']['ref'])
+          }
+          joinedBranches = branches.join(" ")
+          return joinedBranches
+      - name: Join Pr Title Strings
+        id: join-pr-title-strings
+        uses: actions/github-script@v6
+        script: |
+          prs = []
+          for(const pull of ${{ steps.fetch-prs.outputs.result}}){
+            const pull = await github.request("GET /repos/AlexSCorey/dependabot-test/pulls/{id}",{id:pull.number})
+            prs.push('#' + pull['number'] + ' ' + pull['title']);
+          }
+          return prs
+      - name: Create Combined Branch Name
+        id: create-combined-branch-name
+        uses: actions/github-script@v6
+        script: |
+          branchName = UIDependencyBumpCreatedbyDependbot
+          if ("${{ matrix.search_labels }}" == "api"){
+              combinedBranchName = 'ApiDependencyBumpCreatedByDependabot'
+            }
+            return branchName
+      - name: Create Labels for new PR
+        id: create-labels-for-new-pr
+        uses: actions/github-script@v6
+        script: |
+          label = 'label:component:ui+label:dependencies'
+          if ("${{ matrix.search_labels }}" == "api"){
+              label = 'label:component:api+label:dependencies'
+            }
+          return label
 
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - name: Check out repo
@@ -86,8 +127,8 @@ jobs:
         id: combine-branch-name
         env:
           BASE_BRANCH: devel
-          BRANCHES_TO_COMBINE: ${{ steps.fetch-prs.outputs.result.combinedBranches }}
-          COMBINE_BRANCH_NAME: ${{ steps.fetch-prs.outputs.result.combinedBranchName }}
+          BRANCHES_TO_COMBINE: ${{ steps.create-combined-branches.outputs.result }}
+          COMBINE_BRANCH_NAME: ${{ steps.crete-combined-branch-name.outputs.result}}
         run: |
           echo "$BRANCHES_TO_COMBINE"
           sourcebranches="${BRANCHES_TO_COMBINE%\"}"
@@ -108,7 +149,7 @@ jobs:
       - name: Create Combined Pull Request
         uses: actions/github-script@v3
         env:
-          PR_STRINGS: ${{ steps.fetch.prs.outputs.result.prStrings }}
+          PR_STRINGS: ${{ steps.join-pr-title-strings.outputs.result }}
           LABEL: ${{ matrix.search_labels }}
         with:
           github-token: ${{secrets.GITHUB_TOKEN}}

@@ -106,7 +106,6 @@ jobs:
       - name: Created combined branch
         id: combine-branch-name
         env:
-          BASE_BRANCH: main
           BRANCHES_TO_COMBINE: "${{ steps.create-combined-branches.outputs.result }}"
           COMBINE_BRANCH_NAME: "${{ steps.create-combined-branch-name.outputs.result}}"
         run: |
@@ -114,7 +113,7 @@ jobs:
           sourcebranches="${BRANCHES_TO_COMBINE%\"}"
           sourcebranches="${sourcebranches#\"}"
 
-          basebranch="${BASE_BRANCH%\"}"
+          basebranch="main"
           basebranch="${basebranch#\"}"
 
           git config pull.rebase false
@@ -140,7 +139,7 @@ jobs:
               repo: context.repo.repo,
               title: 'Combined PR',
               head: ${{ env.COMBINE_BRANCH_NAME }},
-              base: ${{ env.BASE_BRANCH }},
+              base: 'main',
               body: body
               labels:[${{ steps.create-labels-for-new-pr.outputs.result }}]
             });

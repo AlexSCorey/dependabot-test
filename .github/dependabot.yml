@@ -8,23 +8,16 @@ updates:
   - package-ecosystem: "npm" # See documentation for possible values
     directory: "/awx/ui" # Location of package manifests
     schedule:
-      interval: "weekly"
-      day: "monday"
-     open-pull-requests-limit: 5
+      interval: "daily"
     allow:
       # Allow both direct and indirect updates for all packages
-      - dependency-type: "all"
+      - dependency-type: "direct"
     reviewers:
       - "AlexSCorey"
-      - "keithgrant"
-      - "kialam"
-      - "mabashian"
-      - "marshmalien"
-      - "nixocio"
     labels:
       - "component:ui"
       - "dependencies"
-    target-branch: "devel"
+    target-branch: "main"
   - package-ecosystem: "pip" # See documentation for possible values
     directory: "/" # Location of package manifests
     schedule:

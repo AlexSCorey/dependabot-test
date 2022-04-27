@@ -25,10 +25,15 @@ jobs:
   #       - "dependabot/**"
 
   # Steps represent a sequence of tasks that will be executed as part of the job
-  job1:
+  Get_Prs:
     runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.fetch-branch-names.outputs.values}}
+    strategy:
+      matrix:
+        search_labels:
+          [
+            "label:component:ui+label:dependencies",
+            "label:component:api+label:dependencies",
+          ]
     steps:
       - name: Fetch branch names
         id: fetch-branch-names
@@ -36,15 +41,11 @@ jobs:
         with:
           github-token: ${{secrets.GITHUB_TOKEN}}
           script: |
-            const uipulls = await github.rest.search.issuesAndPullRequests({
-              q:'dependabot+repo:AlexSCorey/dependabot-test+label:component:ui+label:dependencies+is:pr'
+            const pulls = await github.rest.search.issuesAndPullRequests({
+              q:'dependabot+repo:AlexSCorey/dependabot-test+is:pr+${{matrix.search_labels}}'
             });
 
-            const apipulls = await github.rest.search.issuesAndPullRequests({
-              q:'dependabot+repo:AlexSCorey/dependabot-test+label:component:api+label:dependencies+is:pr'
-            });
-
-            console.log(uipulls, apipulls,'All Pull requests')
+            console.log(pulls, apipulls,'All Pull requests')
 
           # const uiBranches=[];
           # const apiBranches = [];

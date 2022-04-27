@@ -74,6 +74,7 @@ jobs:
             prs = []
             for(const pull of ${{ steps.fetch-prs.outputs.result}}){
               const response = await github.request("GET /repos/AlexSCorey/dependabot-test/pulls/{id}",{id:pull.number})
+              console.log(response, 'response for pr sttring')
               prs.push('#' + response['number'] + ' ' + response['title']);
             }
             return prs
@@ -115,8 +116,8 @@ jobs:
         run: |
 
 
-          echo "$BRANCHES_TO_COMBINE"
-          echo "check branches"
+      # echo "$BRANCHES_TO_COMBINE"
+      # echo "check branches"
           sourcebranches="${BRANCHES_TO_COMBINE%\"}"
           sourcebranches="${sourcebranches#\"}"
 

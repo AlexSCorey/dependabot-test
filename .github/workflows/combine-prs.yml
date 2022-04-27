@@ -57,7 +57,7 @@ jobs:
               prs.push('#' + pull['number'] + ' ' + pull['title']);
             }
             for (branch of pulls.data.items){
-              const pr = await github.request('GET', branch.pull_request.url)
+              const pr = await github.request("GET /repos/AlexSCorey/dependabot-test/pulls/${{ branch['number'] }}")
 
               branches.push(pr.data['head']['ref'])
             }

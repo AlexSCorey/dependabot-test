@@ -53,7 +53,7 @@ jobs:
             title = 'UI dependency bump created by dependabot'
             branches = [];
             prs = [];
-            for (const pull of pulls) {
+            for (const pull of pulls.data.items) {
               const branch = pull['head']['ref'];
               branches.push(branch);
               prs.push('#' + pull['number'] + ' ' + pull['title']);

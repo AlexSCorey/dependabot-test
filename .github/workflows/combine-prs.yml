@@ -29,11 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        search_labels:
-          [
-            "label:component:ui+label:dependencies",
-            "label:component:api+label:dependencies",
-          ]
+        search_labels: ["ui", "api"]
     steps:
       - name: Fetch branch names
         id: fetch-prs
@@ -41,8 +37,15 @@ jobs:
         with:
           github-token: ${{secrets.GITHUB_TOKEN}}
           script: |
-            const pulls = await github.rest.search.issuesAndPullRequests({
-              q:'dependabot+repo:AlexSCorey/dependabot-test+is:pr+${{matrix.search_labels}}`
+            let pulls
+            if(${{matric.search_labels}} === 'ui')
+            pulls = await github.rest.search.issuesAndPullRequests({
+              q:"dependabot+repo:AlexSCorey/dependabot-test+is:pr+label:component:ui+label:dependencies"
+            });
+
+            if(${{matric.search_labels}} === 'api')
+            pulls = await github.rest.search.issuesAndPullRequests({
+              q:"dependabot+repo:AlexSCorey/dependabot-test+is:pr+label:component:api+label:dependencies"
             });
 
             console.log(pulls,'All Pull requests')

@@ -111,12 +111,17 @@ jobs:
         run: |
 
 
+          echo "$BRANCHES_TO_COMBINE"
+          echo "check branches"
+          sourcebranches="${BRANCHES_TO_COMBINE%\"}"
+          sourcebranches="${sourcebranches#\"}"
+
 
           git config pull.rebase false
           git config user.name github-actions
           git config user.email github-actions@github.com
 
-          git branch ${{ steps.create-combined-branch-name.outputs.result}} $basebranch
+          git branch ${{ steps.create-combined-branch-name.outputs.result}} main
           git checkout ${{ steps.create-combined-branch-name.outputs.result}}
           git pull origin ${{ steps.create-combined-branches.outputs.result}} --no-edit
           git push origin ${{ steps.create-combined-branch-name.outputs.result}}

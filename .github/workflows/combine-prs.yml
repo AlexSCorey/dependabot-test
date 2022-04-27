@@ -48,7 +48,7 @@ jobs:
               q:"dependabot+repo:AlexSCorey/dependabot-test+is:pr+label:component:api+label:dependencies"
             });
 
-            return pulls
+            return pulls.data.items
       - name: Create Combined Branches
         id: create-combined-branches
         uses: actions/github-script@v6

@@ -42,7 +42,7 @@ jobs:
           github-token: ${{secrets.GITHUB_TOKEN}}
           script: |
             const pulls = await github.rest.search.issuesAndPullRequests({
-              q:'dependabot+repo:AlexSCorey/dependabot-test+is:pr+${{matrix.search_labels}}'
+              q:'dependabot+repo:AlexSCorey/dependabot-test+is:pr+${{matrix.search_labels}}`
             });
 
             console.log(pulls,'All Pull requests')

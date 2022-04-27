@@ -41,7 +41,7 @@ jobs:
               repo: 'AlexSCorey/dependabot-test',
               label: 'component:ui',
               label: 'dependencies',
-              is: pr
+              is: 'pr'
             });
 
             console.log(pulls,'All Pull requests')

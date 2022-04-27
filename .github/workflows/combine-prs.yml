@@ -66,7 +66,7 @@ jobs:
         id: join-pr-title-strings
         uses: actions/github-script@v6
         with:
-          github_token: ${{secrets.GITHUB_TOKEN}}
+          github-token: ${{secrets.GITHUB_TOKEN}}
           script: |
             prs = []
             for(const pull of ${{ steps.fetch-prs.outputs.result}}){
@@ -78,7 +78,7 @@ jobs:
         id: create-combined-branch-name
         uses: actions/github-script@v6
         with:
-          github_token: ${{secrets.GITHUB_TOKEN}}
+          github-token: ${{secrets.GITHUB_TOKEN}}
           script: |
             branchName = 'UIDependencyBumpCreatedbyDependbot'
             if ("${{ matrix.search_labels }}" == "api"){
@@ -89,7 +89,7 @@ jobs:
         id: create-labels-for-new-pr
         uses: actions/github-script@v6
         with:
-          github_token: ${{secrets.GITHUB_TOKEN}}
+          github-token: ${{secrets.GITHUB_TOKEN}}
           script: |
             label = 'label:component:ui+label:dependencies'
             if ("${{ matrix.search_labels }}" == "api"){

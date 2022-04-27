@@ -57,7 +57,7 @@ jobs:
 
 
               console.log(pull,'a single PR')
-              const pr = await github.request("GET /repos/AlexSCorey/dependabot-test/pulls/{id}",{id:"${{ pull.number }}"})
+              const pr = await github.request("GET /repos/AlexSCorey/dependabot-test/pulls/{id}",{id:pull.number})
 
               branches.push(pr.data['head']['ref'])
             }

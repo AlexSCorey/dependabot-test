@@ -144,7 +144,7 @@ jobs:
               repo: context.repo.repo,
               title: 'Combined PR',
               head: ${{ env.COMBINE_BRANCH_NAME }},
-              base: 'main',
+              base: '${{ steps.create-combined-branches.outputs.base-branch }}',
               body: body
               labels:[${{ steps.create-labels-for-new-pr.outputs.result }}]
             });

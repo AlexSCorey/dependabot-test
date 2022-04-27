@@ -106,11 +106,11 @@ jobs:
       - name: Created combined branch
         id: combine-branch-name
         env:
-          BASE_BRANCH: "main"
+          BASE_BRANCH: main
           BRANCHES_TO_COMBINE: "${{ steps.create-combined-branches.outputs.result }}"
           COMBINE_BRANCH_NAME: "${{ steps.create-combined-branch-name.outputs.result}}"
         run: |
-          echo "$BRANCHES_TO_COMBINE"
+
           sourcebranches="${BRANCHES_TO_COMBINE%\"}"
           sourcebranches="${sourcebranches#\"}"
 

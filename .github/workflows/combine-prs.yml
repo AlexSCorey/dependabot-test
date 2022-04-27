@@ -30,15 +30,9 @@ jobs:
     strategy:
       matrix:
         search_labels: ["ui", "api"]
-    outputs:
-      source-branches: ${{ steps.fetch-source-branches.outputs.result }}
-      joined-pr-titles: ${{ steps.join-pr-title-strings.outputs.result }}
-      parent-branch-name: ${{ steps.create-combined-branch-name.outputs.result }}
-      base-branch: ${{ steps.fetch-source-branches.outputs.base-branch }}
-      pr-label: ${{ steps.create-labels-for-new-pr.outputs.result }}
     steps:
-      - name: Fetch branch names
-        id: fetch-prs
+      - name: Fetch Dependency Branches
+        id: fetch-dependency-branches
         uses: actions/github-script@v6
         with:
           github-token: ${{secrets.GITHUB_TOKEN}}
@@ -55,15 +49,15 @@ jobs:
             });
 
             return pulls.data.items
-      - name: Fetch Source Branches
-        id: fetch-source-branches
+      - name: Combine Dependency Branches
+        id: combine-dependency-branches
         uses: actions/github-script@v6
         with:
           github-token: ${{secrets.GITHUB_TOKEN}}
           script: |
             branches = []
             let base_branch
-            for(const pull of ${{ steps.fetch-prs.outputs.result}}){
+            for(const pull of ${{ steps.fetch-dependency-branches.outputs.result}}){
               const pr = await github.request("GET /repos/AlexSCorey/dependabot-test/pulls/{id}",{id:pull.number})
               branches.push(pr.data['head']['ref'])
             base_branch = pr.data['base']['ref']
@@ -71,21 +65,21 @@ jobs:
             core.setOutput('base-branch', base_branch);
             joinedBranches = branches.join(" ")
             return joinedBranches
-      - name: Join Pr Title Strings
-        id: join-pr-title-strings
+      - name: Join Dependency Pr Titles
+        id: join-dependency-pr-titles
         uses: actions/github-script@v6
         with:
           github-token: ${{secrets.GITHUB_TOKEN}}
           script: |
             prs = []
-            for(const pull of ${{ steps.fetch-prs.outputs.result}}){
+            for(const pull of ${{ steps.fetch-dependency-branches.outputs.result}}){
               const response = await github.request("GET /repos/AlexSCorey/dependabot-test/pulls/{id}",{id:pull.number})
               console.log(response, 'response for pr sttring')
               prs.push('#' + response['number'] + ' ' + response['title']);
             }
             return prs
-      - name: Create Combined Branch Name
-        id: create-combined-branch-name
+      - name: Declare Combined Branch Name
+        id: declare-combined-branch-name
         uses: actions/github-script@v6
         with:
           github-token: ${{secrets.GITHUB_TOKEN}}
@@ -108,22 +102,16 @@ jobs:
             return label
 
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-
-  Create_Branch_and_Make_PR:
-    runs-on: ubuntu-latest
-    needs: Component_types
-    steps:
       - name: Check out repo
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
       # Creates a branch with other PR branches merged together
-      - name: Created source branch
-        id: created-source-branch
+      - name: Created combined branch
         env:
-          BASE_BRANCH: ${{ needs.Component_types.outputs.base-branch }}
-          SOURCE_BRANCHES: "${{ needs.Component_types.outputs.source-branches }}"
-          COMBINE_BRANCH_NAME: "${{ needs.Component_types.outputs.parent-branch-name}}"
+          BASE_BRANCH: ${{ steps.combine-dependency-branches.outputs.base-branch }}
+          BRANCHES_TO_COMBINE: "${{ steps.combine-dependency-branches.outputs.result }}"
+          COMBINED_BRANCH_NAME: "${{ steps.declare-combined-branch-name.outputs.result}}"
         run: |
 
 
@@ -139,15 +127,15 @@ jobs:
           git config user.name github-actions
           git config user.email github-actions@github.com
 
-          git branch $COMBINE_BRANCH_NAME $basebranch
-          git checkout $COMBINE_BRANCH_NAME
+          git branch $COMBINED_BRANCH_NAME $basebranch
+          git checkout $COMBINED_BRANCH_NAME
           git pull origin $sourcebranches --no-edit
-          git push origin $COMBINE_BRANCH_NAME
+          git push origin $COMBINED_BRANCH_NAME
 
       - name: Create Combined Pull Request
         uses: actions/github-script@v3
         env:
-          PR_STRINGS: ${{ needs.Component_types.outputs.joined-pr-titles }}
+          PR_STRINGS: ${{ steps.join-dependency-pr-titles.outputs.result }}
         with:
           github-token: ${{secrets.GITHUB_TOKEN}}
           script: |
@@ -157,10 +145,10 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               title: 'Combined PR',
-              head: ${{ env.COMBINE_BRANCH_NAME }},
-              base: '${{ needs.Component_types.outputs.base-branch }}',
+              head: ${{ env.COMBINED_BRANCH_NAME }},
+              base: '${{ steps.combine-dependency-branches.outputs.base-branch }}',
               body: body
-              labels:[${{ needs.Component_types.outputs.pr-label }}]
+              labels:[${{ steps.create-labels-for-new-pr.outputs.result }}]
             });
       # - name: Close PRs that were combined
       #   run: |

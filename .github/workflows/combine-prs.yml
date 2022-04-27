@@ -106,7 +106,7 @@ jobs:
       - name: Created combined branch
         id: combine-branch-name
         env:
-          BASE_BRANCH: devel
+          BASE_BRANCH: "devel"
           BRANCHES_TO_COMBINE: ${{ steps.create-combined-branches.outputs.result }}
           COMBINE_BRANCH_NAME: ${{ steps.create-combined-branch-name.outputs.result}}
         run: |

@@ -37,7 +37,7 @@ jobs:
           github-token: ${{secrets.GITHUB_TOKEN}}
           script: |
             const pulls = await github.rest.search.issuesAndPullRequests({
-              q:'dependabot+owner:context.repo.owner+repo:AlexSCorey/dependabot-test+label:component:ui+label:dependencies+is:pr'
+              q:'dependabot+repo:AlexSCorey/dependabot-test+label:component:ui+label:dependencies+is:pr'
             });
 
             console.log(pulls,'All Pull requests')

@@ -1,0 +1,14 @@
+on:
+  pull_request:
+    types:
+      - opened
+jobs:
+  run_if:
+    if: ${{ startsWith(github.head_ref, 'UIDependencyBumpCreatedbyDependbot') || startsWith(github.head_ref, 'ApiDependencyBumpCreatedByDependabot') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Label PR
+          uses: actions/labeler@v3
+          with:
+            repo-token: "${{ secrets.GITHUB_TOKEN }}"
+            configuration-path: .github/pr_labeler.yml

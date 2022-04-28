@@ -132,11 +132,11 @@ jobs:
         uses: actions/github-script@v3
         env:
           PR_STRINGS: ${{ steps.join-dependency-pr-titles.outputs.result }}
-          COMBINED_BRANCH_NAME: "${{ steps.declare-combined-branch-name.outputs.result}}"
+          COMBINED_BRANCH_NAME: ${{ steps.declare-combined-branch-name.outputs.result }}
         with:
           github-token: ${{secrets.GITHUB_TOKEN}}
           script: |
-            const prString = PRS_STRINGS;
+            const prString = ${{env.PRS_STRINGS}};
             console.log(prString, 'pr sttrings neew')
             const body = 'This PR was created by the Combine PRs action by combining the following PRs'
             await github.pulls.create({

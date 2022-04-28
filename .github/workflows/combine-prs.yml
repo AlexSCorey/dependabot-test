@@ -143,7 +143,7 @@ jobs:
               title: 'Combined PR',
               head: ${{ env.COMBINED_BRANCH_NAME }},
               base: "${{ steps.combine-dependency-branches.outputs.base-branch }}",
-              body: body,
+              body: "this is the body",
             });
 
       # labels: ${{ steps.create-labels-for-new-pr.outputs.result }}

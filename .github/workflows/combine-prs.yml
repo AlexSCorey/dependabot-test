@@ -84,7 +84,7 @@ jobs:
         with:
           github-token: ${{secrets.GITHUB_TOKEN}}
           script: |
-            branchName = UIDependencyBumpCreatedbyDependbot
+            branchName = 'UIDependencyBumpCreatedbyDependbot'
             if ("${{ matrix.search_labels }}" == "api"){
                 combinedBranchName = 'ApiDependencyBumpCreatedByDependabot'
               }
@@ -118,15 +118,17 @@ jobs:
 
           basebranch="${BASE_BRANCH%\"}"
           basebranch="${basebranch#\"}"
+          headBranch = "${COMBINED_BRANCH_NAME%\"}"
+          headBranch="${headBranch#\"}"
 
           git config pull.rebase false
           git config user.name github-actions
           git config user.email github-actions@github.com
 
-          git branch $COMBINED_BRANCH_NAME $basebranch
-          git checkout $COMBINED_BRANCH_NAME
+          git branch $headBranch $basebranch
+          git checkout $headBranch
           git pull origin $sourcebranches --no-edit
-          git push origin $COMBINED_BRANCH_NAME
+          git push origin $headBranch
 
       - name: Create Combined Pull Request
         uses: actions/github-script@v3

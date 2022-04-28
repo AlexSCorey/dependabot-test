@@ -148,6 +148,9 @@ jobs:
               base: "${{ steps.combine-dependency-branches.outputs.base-branch }}",
               body: body,
             });
+      - name: cancel workflow
+        if: failure()
+        uses: andymckay/cancel-action@0.2
 
       # labels: ${{ steps.create-labels-for-new-pr.outputs.result }}
       # - name: Close PRs that were combined

@@ -5,7 +5,7 @@ on:
       - opened
 jobs:
   run_if:
-    if: ${{ startsWith(github.head_ref, 'UIDependencyBumpCreatedbyDependbot') || startsWith(github.head_ref, 'ApiDependencyBumpCreatedByDependabot') }}
+    if: github.head_ref == 'UIDependencyBumpCreatedbyDependbot'
     runs-on: ubuntu-latest
     steps:
       - name: Label PR

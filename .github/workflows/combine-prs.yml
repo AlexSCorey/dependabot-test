@@ -88,7 +88,7 @@ jobs:
           script: |
             branchName = 'UIDependencyBumpCreatedbyDependbot'
             if ("${{ matrix.search_labels }}" == "api"){
-                combinedBranchName = 'ApiDependencyBumpCreatedByDependabot'
+                branchName = 'ApiDependencyBumpCreatedByDependabot'
               }
             return branchName
       - name: Create Labels for new PR

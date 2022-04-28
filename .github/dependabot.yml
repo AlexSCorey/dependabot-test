@@ -18,13 +18,13 @@ updates:
       - "component:ui"
       - "dependencies"
     target-branch: "main"
-  # - package-ecosystem: "pip" # See documentation for possible values
-  #   directory: "/" # Location of package manifests
-  #   schedule:
-  #     interval: "monthly"
-  #   reviewers:
-  #     - "AlexSCorey"
-  #   labels:
-  #     - "component:api"
-  #     - "dependencies"
-  #   target-branch: "main"
+  - package-ecosystem: "pip" # See documentation for possible values
+    directory: "/" # Location of package manifests
+    schedule:
+      interval: "monthly"
+    reviewers:
+      - "AlexSCorey"
+    labels:
+      - "component:api"
+      - "dependencies"
+    target-branch: "main"

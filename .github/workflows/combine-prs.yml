@@ -27,17 +27,130 @@ jobs:
   # Steps represent a sequence of tasks that will be executed as part of the job
   Component_types:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        search_labels: ["ui", "api"]
     steps:
-      - name: Update Node Dependencies
-        uses: neverendingqs/gh-action-node-update-deps@master
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }} # NPM token to use when `npm-registry-*` configs are set
+      - name: Fetch Dependency Branches
+        id: fetch-dependency-branches
+        uses: actions/github-script@v6
         with:
-          bump-version: patch # defaults to not bumping the package version
-          commit-message-prefix: fix # defaults 'chore'
-          package-manager: yarn # defaults to 'npm'
-          git-user-email: myemail@example.com # defaults to '41898282+github-actions[bot]@users.noreply.github.com'
-          git-user-name: Test # defaults to 'github-actions[bot]'
-          pull-request-labels: "dependencies+component:ui" # defaults to 'dependencies'
-          target-version: minor # defaults to 'latest'
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          script: |
+            let pulls
+            if("${{matrix.search_labels}}" == "ui")
+            pulls = await github.rest.search.issuesAndPullRequests({
+              q:"dependabot+repo:AlexSCorey/dependabot-test+is:pr+is:open+label:component:ui+label:dependencies"
+            });
+
+            if("${{matrix.search_labels}}" === "api")
+            pulls = await github.rest.search.issuesAndPullRequests({
+              q:"dependabot+repo:AlexSCorey/dependabot-test+is:pr+label:component:api+label:dependencies"
+            });
+
+            return pulls.data.items
+      - name: Combine Dependency Branches
+        id: combine-dependency-branches
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          script: |
+            branches = []
+            let base_branch
+            for(const pull of ${{ steps.fetch-dependency-branches.outputs.result}}){
+              const pr = await github.request("GET /repos/AlexSCorey/dependabot-test/pulls/{id}",{id:pull.number})
+              branches.push(pr.data['head']['ref'])
+            base_branch = pr.data['base']['ref']
+            }
+            core.setOutput('base-branch', base_branch);
+            joinedBranches = branches.join(" ")
+            return joinedBranches
+      - name: Join Dependency Pr Titles
+        id: join-dependency-pr-titles
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          script: |
+            prs = []
+            for(const pull of ${{ steps.fetch-dependency-branches.outputs.result}}){
+              const response = await github.request("GET /repos/AlexSCorey/dependabot-test/pulls/{id}",{id:pull.number})
+              console.log(response, 'response for pr sttring')
+              prs.push('#' + response['number'] + ' ' + response['title']);
+            }
+            return prs
+      - name: Declare Combined Branch Name
+        id: declare-combined-branch-name
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          script: |
+            branchName = 'UIDependencyBumpCreatedbyDependbot'
+            if ("${{ matrix.search_labels }}" == "api"){
+                combinedBranchName = 'ApiDependencyBumpCreatedByDependabot'
+              }
+            return branchName
+      - name: Create Labels for new PR
+        id: create-labels-for-new-pr
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          script: |
+            label = 'label:component:ui+label:dependencies'
+            if ("${{ matrix.search_labels }}" == "api"){
+                label = 'label:component:api+label:dependencies'
+              }
+            return label
+
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - name: Check out repo
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      # Creates a branch with other PR branches merged together
+      - name: Created combined branch
+        env:
+          BASE_BRANCH: ${{ steps.combine-dependency-branches.outputs.base-branch }}
+          BRANCHES_TO_COMBINE: "${{ steps.combine-dependency-branches.outputs.result }}"
+          COMBINED_BRANCH_NAME: "${{ steps.declare-combined-branch-name.outputs.result}}"
+        run: |
+
+
+          # echo "$BRANCHES_TO_COMBINE"
+          # echo "check branches"
+          sourcebranches="${BRANCHES_TO_COMBINE%\"}"
+          sourcebranches="${sourcebranches#\"}"
+
+          basebranch="${BASE_BRANCH%\"}"
+          basebranch="${basebranch#\"}"
+
+          git config pull.rebase false
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+
+          git branch $COMBINED_BRANCH_NAME $basebranch
+          git checkout $COMBINED_BRANCH_NAME
+          git pull origin $sourcebranches --no-edit
+          git push origin $COMBINED_BRANCH_NAME
+
+      - name: Create Combined Pull Request
+        uses: actions/github-script@v3
+        env:
+          PR_STRINGS: ${{ steps.join-dependency-pr-titles.outputs.result }}
+        with:
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          script: |
+            const prString = PR_STRINGS
+            const body = 'This PR was created by the Combine PRs action by combining the following PRs:\n' + {{PR_STRINGS}};
+            await github.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: 'Combined PR',
+              head: ${{ env.COMBINED_BRANCH_NAME }},
+              base: '${{ steps.combine-dependency-branches.outputs.base-branch }}',
+              body: body
+              labels:[${{ steps.create-labels-for-new-pr.outputs.result }}]
+            });
+      # - name: Close PRs that were combined
+      #   run: |
+      #     for (const pr of '${{ steps.fetch-branch-names.outputs.prs}}') {
+      #       console.log(pr)

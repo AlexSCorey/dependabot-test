@@ -138,14 +138,15 @@ jobs:
         with:
           github-token: ${{secrets.GITHUB_TOKEN}}
           script: |
-            const body = 'This PR was created by the Combine PRs action by combining the following PRs'
+            const prString = process.env.PR_STRINGS;
+            const body = 'This PR was created by the Combine PRs action by combining the following PRs:\n' + prString;
             await github.pulls.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
               title: 'Combined PR',
               head: ${{ env.COMBINED_BRANCH_NAME }},
               base: "${{ steps.combine-dependency-branches.outputs.base-branch }}",
-              body: "this is the body",
+              body: body,
             });
 
       # labels: ${{ steps.create-labels-for-new-pr.outputs.result }}

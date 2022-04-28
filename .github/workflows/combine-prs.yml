@@ -81,10 +81,8 @@ jobs:
       - name: Declare Combined Branch Name
         id: declare-combined-branch-name
         uses: actions/github-script@v6
-        with:
-          github-token: ${{secrets.GITHUB_TOKEN}}
           script: |
-            branchName = 'UIDependencyBumpCreatedbyDependbot'
+            branchName = UIDependencyBumpCreatedbyDependbot
             if ("${{ matrix.search_labels }}" == "api"){
                 combinedBranchName = 'ApiDependencyBumpCreatedByDependabot'
               }

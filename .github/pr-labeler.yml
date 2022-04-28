@@ -1,0 +1,5 @@
+"component:api":
+  - any: ["awx/**/*", "!awx/ui/*"]
+
+"component:ui":
+  - any: ["awx/ui/**/*"]

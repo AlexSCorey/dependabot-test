@@ -81,12 +81,14 @@ jobs:
       - name: Declare Combined Branch Name
         id: declare-combined-branch-name
         uses: actions/github-script@v6
-        script: |
-          branchName = UIDependencyBumpCreatedbyDependbot
-          if ("${{ matrix.search_labels }}" == "api"){
-              combinedBranchName = 'ApiDependencyBumpCreatedByDependabot'
-            }
-          return branchName
+        with:
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          script: |
+            branchName = UIDependencyBumpCreatedbyDependbot
+            if ("${{ matrix.search_labels }}" == "api"){
+                combinedBranchName = 'ApiDependencyBumpCreatedByDependabot'
+              }
+            return branchName
       - name: Create Labels for new PR
         id: create-labels-for-new-pr
         uses: actions/github-script@v6

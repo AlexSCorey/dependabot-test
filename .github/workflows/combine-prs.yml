@@ -30,6 +30,7 @@ jobs:
     strategy:
       matrix:
         search_labels: ["ui", "api"]
+    continue-on-error: true
     steps:
       - name: Fetch Dependency Branches
         id: fetch-dependency-branches

@@ -144,7 +144,7 @@ jobs:
               head: ${{ env.COMBINED_BRANCH_NAME }},
               base: '${{ steps.combine-dependency-branches.outputs.base-branch }}',
               body: body,
-              labels: [${{ steps.create-labels-for-new-pr.outputs.result }}]
+              labels: ${{ steps.create-labels-for-new-pr.outputs.result }}
             });
       # - name: Close PRs that were combined
       #   run: |

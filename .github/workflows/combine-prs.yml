@@ -28,6 +28,7 @@ jobs:
   Component_types:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         search_labels: ["ui", "api"]
     continue-on-error: true

@@ -75,7 +75,7 @@ jobs:
             for(const pull of ${{ steps.fetch-dependency-branches.outputs.result}}){
               const response = await github.request("GET /repos/AlexSCorey/dependabot-test/pulls/{id}",{id:pull.number})
               console.log(response, 'response for pr sttring')
-              prs.push('#' + response['number'] + ' ' + response['title']);
+              prs.push('#' + response.data['number'] + ' ' + response.data['title']);
             }
             return prs
       - name: Declare Combined Branch Name
@@ -113,10 +113,6 @@ jobs:
           BRANCHES_TO_COMBINE: "${{ steps.combine-dependency-branches.outputs.result }}"
           COMBINED_BRANCH_NAME: "${{ steps.declare-combined-branch-name.outputs.result}}"
         run: |
-
-
-          # echo "$BRANCHES_TO_COMBINE"
-          # echo "check branches"
           sourcebranches="${BRANCHES_TO_COMBINE%\"}"
           sourcebranches="${sourcebranches#\"}"
 
@@ -139,8 +135,7 @@ jobs:
         with:
           github-token: ${{secrets.GITHUB_TOKEN}}
           script: |
-            const prString = PR_STRINGS
-            const body = 'This PR was created by the Combine PRs action by combining the following PRs:\n' + {{PR_STRINGS}};
+            const body = 'This PR was created by the Combine PRs action by combining the following PRs:\n' + ${{env.PR_STRINGS}};
             await github.pulls.create({
               owner: context.repo.owner,
               repo: context.repo.repo,

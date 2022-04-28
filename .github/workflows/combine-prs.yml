@@ -118,7 +118,7 @@ jobs:
 
           basebranch="${BASE_BRANCH%\"}"
           basebranch="${basebranch#\"}"
-          headBranch = "${COMBINED_BRANCH_NAME%\"}"
+          headBranch="${COMBINED_BRANCH_NAME%\"}"
           headBranch="${headBranch#\"}"
 
           git config pull.rebase false

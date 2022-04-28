@@ -111,7 +111,7 @@ jobs:
         env:
           BASE_BRANCH: ${{ steps.combine-dependency-branches.outputs.base-branch }}
           BRANCHES_TO_COMBINE: "${{ steps.combine-dependency-branches.outputs.result }}"
-          COMBINED_BRANCH_NAME: ${{ steps.declare-combined-branch-name.outputs.result}}
+          COMBINED_BRANCH_NAME: "${{ steps.declare-combined-branch-name.outputs.result}}"
         run: |
           sourcebranches="${BRANCHES_TO_COMBINE%\"}"
           sourcebranches="${sourcebranches#\"}"
@@ -132,11 +132,13 @@ jobs:
         uses: actions/github-script@v3
         env:
           PR_STRINGS: ${{ steps.join-dependency-pr-titles.outputs.result }}
-          COMBINED_BRANCH_NAME: ${{ steps.declare-combined-branch-name.outputs.result}}
+          COMBINED_BRANCH_NAME: "${{ steps.declare-combined-branch-name.outputs.result}}"
         with:
           github-token: ${{secrets.GITHUB_TOKEN}}
           script: |
-            const body = 'This PR was created by the Combine PRs action by combining the following PRs:\n' + ${{env.PR_STRINGS}};
+            const prString = process.env.PRS_STRING;
+            console.log(prString, 'pr sttrings neew')
+            const body = 'This PR was created by the Combine PRs action by combining the following PRs:\n' + prString;
             await github.pulls.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -144,8 +146,9 @@ jobs:
               head: ${{ env.COMBINED_BRANCH_NAME }},
               base: '${{ steps.combine-dependency-branches.outputs.base-branch }}',
               body: body,
-              labels: "${{ steps.create-labels-for-new-pr.outputs.result }}",
             });
+
+      # labels: ${{ steps.create-labels-for-new-pr.outputs.result }}
       # - name: Close PRs that were combined
       #   run: |
       #     for (const pr of '${{ steps.fetch-branch-names.outputs.prs}}') {

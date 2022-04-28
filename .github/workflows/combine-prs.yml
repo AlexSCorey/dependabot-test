@@ -132,7 +132,7 @@ jobs:
         uses: actions/github-script@v3
         env:
           PR_STRINGS: ${{ steps.join-dependency-pr-titles.outputs.result }}
-          COMBINED_BRANCH_NAME: "${{ steps.declare-combined-branch-name.outputs.result}}"
+          COMBINED_BRANCH_NAME: ${{ steps.declare-combined-branch-name.outputs.result }}
         with:
           github-token: ${{secrets.GITHUB_TOKEN}}
           script: |

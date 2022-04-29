@@ -130,7 +130,7 @@ djangorestframework-yaml==2.0.0
     # via -r requirements/requirements.in
 gitdb==4.0.2
     # via gitpython
-gitpython==3.1.7
+gitpython==3.1.27
     # via -r requirements/requirements.in
 google-auth==1.35.0
     # via kubernetes

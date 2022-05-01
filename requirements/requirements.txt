@@ -298,7 +298,7 @@ redis==3.4.1
     # via
     #   -r requirements/requirements.in
     #   django-redis
-requests==2.26.0
+requests==2.27.1
     # via
     #   -r requirements/requirements.in
     #   adal

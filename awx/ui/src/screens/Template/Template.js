@@ -27,6 +27,7 @@ import TemplateSurvey from './TemplateSurvey';
 
 function Template({ setBreadcrumb }) {
   const match = useRouteMatch();
+  console.log('trial');
   const location = useLocation();
   const { id: templateId } = useParams();
   const { me = {} } = useConfig();

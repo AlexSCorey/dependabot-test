@@ -69,7 +69,7 @@ cryptography==36.0.2
     #   pyopenssl
     #   service-identity
     #   social-auth-core
-cython==0.29.22
+cython==0.29.30
     # via -r requirements/requirements.in
 daphne==2.4.1
     # via

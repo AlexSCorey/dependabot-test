@@ -2,8 +2,7 @@
 name: Customize PR body 1
 on:
   pull_request_target:
-    types:
-      - labeled
+    types: [labeled, opened, reopened]
 jobs:
   pr-check:
     name: Scan PR description for semantic versioning keywords

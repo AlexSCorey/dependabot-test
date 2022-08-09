@@ -6,15 +6,12 @@ on:
 jobs:
   pr-check:
     name: Scan PR description for semantic versioning keywords
-    # if: github.event.pull_request.label.name == 'dependencies'
+    if:  contains(github.event.pull_request.labels.*.name, 'dependencies') && !contains(github.event.pull_request.labels.*.name, 'component:ui')
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout branch
         uses: actions/checkout@v3
-
-      - name: PRR Object
-        run: echo '${{ toJSON(github.event.pull_request) }}'
 
       - name: Read Event (event)
         run: echo '${{ toJSON(github.event.pull_request.labels.*.name) }}'
@@ -27,24 +24,6 @@ jobs:
         if:  contains(github.event.pull_request.labels.*.name, 'component:ui')
         run: echo 'has UI'
 
-      # - name: Read Labels (labels)
-      #   run: echo '${{ toJSON(github.labels) }}'
-
-      # - name: Write PR labels to a file
-      #   run: |
-      #     cat >> pr.labels << __SOME_RANDOM_PR_EOF__
-      #     ${{ github.event.pull_request.labels }}
-      #     __SOME_RANDOM_PR_EOF__
-
-      # - name: Display the received body for troubleshooting
-      #   run: cat pr.labels
-
-      # - name: Check for each of the lines
-      #   run: |
-      #     grep "dependencies" pr.labels > Z
-      #     grep "component:ui" pr.labels > Y
-      #     exit 0
-      #   shell: bash {0}
       - name: Check for exactly 2 labels
         env:
             GITHUB_TOKEN: ${{secrets.CUTOM_PR_BODY}}

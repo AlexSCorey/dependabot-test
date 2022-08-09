@@ -30,30 +30,30 @@ jobs:
       - name: Read Labels (labels)
         run: echo '${{ toJSON(github.labels) }}'
 
-      - name: Write PR labels to a file
-        run: |
-          cat >> pr.labels << __SOME_RANDOM_PR_EOF__
-          ${{ github.event.pull_request.labels }}
-          __SOME_RANDOM_PR_EOF__
+      # - name: Write PR labels to a file
+      #   run: |
+      #     cat >> pr.labels << __SOME_RANDOM_PR_EOF__
+      #     ${{ github.event.pull_request.labels }}
+      #     __SOME_RANDOM_PR_EOF__
 
-      - name: Display the received body for troubleshooting
-        run: cat pr.labels
+      # - name: Display the received body for troubleshooting
+      #   run: cat pr.labels
 
-      - name: Check for each of the lines
-        run: |
-          grep "dependencies" pr.labels > Z
-          grep "component:ui" pr.labels > Y
-          exit 0
-        shell: bash {0}
-      - name: Check for exactly 2 labels
-        env:
-            GITHUB_TOKEN: ${{secrets.CUSTOM_PR_BODY}}
-            OWNER: ${{ github.repository_owner }}
-            REPO: ${{ github.event.repository.name }}
-        run: |
-          if [ $(cat X Y | wc -l) == 1 ] ; then
-            gh pr edit --body "Bug, Docs Fix or other nominal change"
-            exit 0;
-          else
-            exit 255;
-          fi
+      # - name: Check for each of the lines
+      #   run: |
+      #     grep "dependencies" pr.labels > Z
+      #     grep "component:ui" pr.labels > Y
+      #     exit 0
+      #   shell: bash {0}
+      # - name: Check for exactly 2 labels
+      #   env:
+      #       GITHUB_TOKEN: ${{secrets.CUSTOM_PR_BODY}}
+      #       OWNER: ${{ github.repository_owner }}
+      #       REPO: ${{ github.event.repository.name }}
+      #   run: |
+      #     if [ $(cat X Y | wc -l) == 1 ] ; then
+      #       gh pr edit --body "Bug, Docs Fix or other nominal change"
+      #       exit 0;
+      #     else
+      #       exit 255;
+      #     fi

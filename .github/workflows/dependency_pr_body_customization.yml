@@ -3,8 +3,7 @@ name: Customize PR body 1
 on:
   pull_request:
     types: [labeled, opened, reopened]
-    branches:
-      - 'dependabot/**'
+
 jobs:
   pr-check:
     name: Scan PR description for semantic versioning keywords

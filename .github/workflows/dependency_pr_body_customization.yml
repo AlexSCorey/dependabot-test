@@ -1,0 +1,44 @@
+---
+name: Customize PR body 1
+on:
+  pull_request_target:
+    types: [labeled]
+jobs:
+  pr-check:
+    name: Scan PR description for semantic versioning keywords
+    if: github.event.pull_request.label.name == 'dependencies'
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: read
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v3
+
+      - name: Write PR labels to a file
+        run: |
+          cat >> pr.labels << __SOME_RANDOM_PR_EOF__
+          ${{ github.event.pull_request.labels }}
+          __SOME_RANDOM_PR_EOF__
+
+      - name: Display the received body for troubleshooting
+        run: cat pr.labels
+
+      - name: Check for each of the lines
+        run: |
+          grep "dependencies" pr.labels > Z
+          grep "component:ui" pr.labels > Y
+          exit 0
+        shell: bash {0}
+      - name: Check for exactly 2 labels
+        env:
+            GITHUB_TOKEN: ${{secrets.CUSTOM_PR_BODY}}
+            OWNER: ${{ github.repository_owner }}
+            REPO: ${{ github.event.repository.name }}
+        run: |
+          if [ $(cat X Y | wc -l) == 1 ] ; then
+            gh pr edit --body "Bug, Docs Fix or other nominal change"
+            exit 0;
+          else
+            exit 255;
+          fi

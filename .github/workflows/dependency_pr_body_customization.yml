@@ -16,6 +16,14 @@ jobs:
       - name: Read Event (event)
         run: echo '${{ toJSON(github.event.pull_request.labels.*.name) }}'
 
+      - name: Read label dependency
+        if:  contains(github.event.pull_request.labels.*.name, 'dependencies')
+        run: echo 'has Dependencies'
+
+      - name: Read label UI
+        if:  contains(github.event.pull_request.labels.*.name, 'component:ui')
+        run: echo 'has UI'
+
       # - name: Read Labels (labels)
       #   run: echo '${{ toJSON(github.labels) }}'
 

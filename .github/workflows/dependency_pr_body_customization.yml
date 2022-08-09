@@ -2,7 +2,7 @@
 name: Customize PR body 1
 on:
   pull_request:
-    types: [labeled]
+    types: [labeled, opened, reopened]
     branches:
       - 'dependabot/**'
 jobs:

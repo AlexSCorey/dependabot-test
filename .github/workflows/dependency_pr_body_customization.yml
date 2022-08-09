@@ -24,12 +24,10 @@ jobs:
       - name: Checkout branch
         uses: actions/checkout@v3
 
-      - name: Run tests
-        id: tests
-        run: echo "$pr.labels"
+      - name: Dump job context
+        run: echo '${{ toJSON(github.event) }}'
 
-      - name: Read output
-        run: steps.tests.output
+
       - name: Write PR labels to a file
         run: |
           cat >> pr.labels << __SOME_RANDOM_PR_EOF__

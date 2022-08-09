@@ -2,7 +2,7 @@ aiohttp>=3.7.4
 ansiconv==1.0.0  # UPGRADE BLOCKER: from 2013, consider replacing instead of upgrading
 asciichartpy
 autobahn>=20.12.3  # CVE-2020-35678
-azure-keyvault==1.1.0  # see UPGRADE BLOCKERs
+azure-keyvault==4.1.0  # see UPGRADE BLOCKERs
 channels
 channels-redis>=3.1.0  # https://github.com/django/channels_redis/issues/212
 cryptography>=36.0.2,<37.0.0 # Until paramiko fixes https://github.com/paramiko/paramiko/issues/2038 we don't want to go to 37 or we end up with blowfish warnings in the job output

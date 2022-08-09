@@ -1,19 +1,19 @@
 ---
 name: Customize PR body 1
 on:
-  workflow_dispatch:
-    inputs:
-       logLevel:
-        description: 'Log level'
-        required: false
-        default: 'warning'
-        type: choice
-        options:
-        - info
-        - warning
-        - debug
-  # pull_request:
-  #   types: [labeled, opened, reopened]
+  # workflow_dispatch:
+  #   inputs:
+  #      logLevel:
+  #       description: 'Log level'
+  #       required: false
+  #       default: 'warning'
+  #       type: choice
+  #       options:
+  #       - info
+  #       - warning
+  #       - debug
+  pull_request:
+    types: [labeled, opened, reopened]
 jobs:
   pr-check:
     name: Scan PR description for semantic versioning keywords
@@ -23,8 +23,14 @@ jobs:
     steps:
       - name: Get PR labels
         run: echo {{pr.labels}}
+
       - name: Checkout branch
         uses: actions/checkout@v3
+
+      - name: Run tests
+        uses: mathiasvr/command-output@v1
+        id: tests
+        run: echo "::set-output name=pr_labels::$(pr.labels)\n"
 
       - name: Write PR labels to a file
         run: |

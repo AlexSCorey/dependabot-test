@@ -13,18 +13,7 @@ jobs:
       - name: Checkout branch
         uses: actions/checkout@v3
 
-      # - name: Read Event (event)
-      #   run: echo '${{ toJSON(github.event.pull_request.labels.*.name) }}'
-
-      # - name: Read label dependency
-      #   if:  contains(github.event.pull_request.labels.*.name, 'dependencies')
-      #   run: echo 'has Dependencies'
-
-      # - name: Read label UI
-      #   if:  contains(github.event.pull_request.labels.*.name, 'component:ui')
-      #   run: echo 'has UI'
-
-      - name: Check for exactly 2 labels
+      - name: Update PR Body
         env:
             GITHUB_TOKEN: ${{secrets.CUTOM_PR_BODY}}
             OWNER: ${{ github.repository_owner }}

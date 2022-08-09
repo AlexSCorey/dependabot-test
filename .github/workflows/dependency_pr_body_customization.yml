@@ -28,6 +28,8 @@ jobs:
         id: tests
         run: echo "$pr.labels"
 
+      - name: Read output
+        run: steps.tests.output
       - name: Write PR labels to a file
         run: |
           cat >> pr.labels << __SOME_RANDOM_PR_EOF__

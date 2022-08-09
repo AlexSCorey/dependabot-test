@@ -43,5 +43,9 @@ jobs:
       #     exit 0
       #   shell: bash {0}
       - name: Check for exactly 2 labels
+        env:
+            GITHUB_TOKEN: ${{secrets.CUSTOM_PR_BODY}}
+            OWNER: ${{ github.repository_owner }}
+            REPO: ${{ github.event.repository.name }}
         run:  gh pr edit --body "Bug, Docs Fix or other nominal change"
 

@@ -27,8 +27,8 @@ jobs:
       - name: Read Event (event)
         run: echo '${{ toJSON(github.event.labels) }}'
 
-      - name: Read Labels (labels)
-        run: echo '${{ toJSON(github.labels) }}'
+      # - name: Read Labels (labels)
+      #   run: echo '${{ toJSON(github.labels) }}'
 
       # - name: Write PR labels to a file
       #   run: |

@@ -533,7 +533,7 @@ class UnifiedJob(
         ('workflow', _('Workflow')),  # Job was started from a workflow job.
         ('webhook', _('Webhook')),  # Job was started from a webhook event.
         ('sync', _('Sync')),  # Job was started from a project sync.
-        ('scm', _('SCM Update')),  # Job was created as an Inventory SCM sync.
+        ('scm', _('SCM Update')),  # (deprecated) Job was created as an Inventory SCM sync.
     ]
 
     PASSWORD_FIELDS = ('start_args',)
@@ -575,7 +575,8 @@ class UnifiedJob(
     dependent_jobs = models.ManyToManyField(
         'self',
         editable=False,
-        related_name='%(class)s_blocked_jobs+',
+        related_name='%(class)s_blocked_jobs',
+        symmetrical=False,
     )
     execution_node = models.TextField(
         blank=True,
@@ -716,6 +717,13 @@ class UnifiedJob(
         default='',
         editable=False,
         help_text=_("The version of Ansible Core installed in the execution environment."),
+    )
+    host_status_counts = models.JSONField(
+        blank=True,
+        null=True,
+        default=None,
+        editable=False,
+        help_text=_("Playbook stats from the Ansible playbook_on_stats event."),
     )
     work_unit_id = models.CharField(
         max_length=255, blank=True, default=None, editable=False, null=True, help_text=_("The Receptor work unit ID associated with this job.")
@@ -1195,6 +1203,10 @@ class UnifiedJob(
             except UnifiedJob.unified_job_node.RelatedObjectDoesNotExist:
                 pass
         return None
+
+    def get_effective_artifacts(self, **kwargs):
+        """Return unified job artifacts (from set_stats) to pass downstream in workflows"""
+        return {}
 
     def get_passwords_needed_to_start(self):
         return []

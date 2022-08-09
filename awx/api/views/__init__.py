@@ -115,7 +115,6 @@ from awx.api.metadata import RoleMetadata
 from awx.main.constants import ACTIVE_STATES, SURVEY_TYPE_MAPPING
 from awx.main.scheduler.dag_workflow import WorkflowDAG
 from awx.api.views.mixin import (
-    ControlledByScmMixin,
     InstanceGroupMembershipMixin,
     OrganizationCountsMixin,
     RelatedJobsPreventDeleteMixin,
@@ -537,6 +536,7 @@ class ScheduleList(ListCreateAPIView):
     name = _("Schedules")
     model = models.Schedule
     serializer_class = serializers.ScheduleSerializer
+    ordering = ('id',)
 
 
 class ScheduleDetail(RetrieveUpdateDestroyAPIView):
@@ -577,8 +577,7 @@ class ScheduleZoneInfo(APIView):
     swagger_topic = 'System Configuration'
 
     def get(self, request):
-        zones = [{'name': zone} for zone in models.Schedule.get_zoneinfo()]
-        return Response(zones)
+        return Response({'zones': models.Schedule.get_zoneinfo(), 'links': models.Schedule.get_zoneinfo_links()})
 
 
 class LaunchConfigCredentialsBase(SubListAttachDetachAPIView):
@@ -1675,7 +1674,7 @@ class HostList(HostRelatedSearchMixin, ListCreateAPIView):
             return Response(dict(error=_(str(e))), status=status.HTTP_400_BAD_REQUEST)
 
 
-class HostDetail(RelatedJobsPreventDeleteMixin, ControlledByScmMixin, RetrieveUpdateDestroyAPIView):
+class HostDetail(RelatedJobsPreventDeleteMixin, RetrieveUpdateDestroyAPIView):
 
     always_allow_superuser = False
     model = models.Host
@@ -1709,7 +1708,7 @@ class InventoryHostsList(HostRelatedSearchMixin, SubListCreateAttachDetachAPIVie
         return qs
 
 
-class HostGroupsList(ControlledByScmMixin, SubListCreateAttachDetachAPIView):
+class HostGroupsList(SubListCreateAttachDetachAPIView):
     '''the list of groups a host is directly a member of'''
 
     model = models.Group
@@ -1825,7 +1824,7 @@ class EnforceParentRelationshipMixin(object):
         return super(EnforceParentRelationshipMixin, self).create(request, *args, **kwargs)
 
 
-class GroupChildrenList(ControlledByScmMixin, EnforceParentRelationshipMixin, SubListCreateAttachDetachAPIView):
+class GroupChildrenList(EnforceParentRelationshipMixin, SubListCreateAttachDetachAPIView):
 
     model = models.Group
     serializer_class = serializers.GroupSerializer
@@ -1871,7 +1870,7 @@ class GroupPotentialChildrenList(SubListAPIView):
         return qs.exclude(pk__in=except_pks)
 
 
-class GroupHostsList(HostRelatedSearchMixin, ControlledByScmMixin, SubListCreateAttachDetachAPIView):
+class GroupHostsList(HostRelatedSearchMixin, SubListCreateAttachDetachAPIView):
     '''the list of hosts directly below a group'''
 
     model = models.Host
@@ -1935,7 +1934,7 @@ class GroupActivityStreamList(SubListAPIView):
         return qs.filter(Q(group=parent) | Q(host__in=parent.hosts.all()))
 
 
-class GroupDetail(RelatedJobsPreventDeleteMixin, ControlledByScmMixin, RetrieveUpdateDestroyAPIView):
+class GroupDetail(RelatedJobsPreventDeleteMixin, RetrieveUpdateDestroyAPIView):
 
     model = models.Group
     serializer_class = serializers.GroupSerializer
@@ -3849,7 +3848,7 @@ class JobJobEventsChildrenSummary(APIView):
     meta_events = ('debug', 'verbose', 'warning', 'error', 'system_warning', 'deprecated')
 
     def get(self, request, **kwargs):
-        resp = dict(children_summary={}, meta_event_nested_uuid={}, event_processing_finished=False)
+        resp = dict(children_summary={}, meta_event_nested_uuid={}, event_processing_finished=False, is_tree=True)
         job = get_object_or_404(models.Job, pk=kwargs['pk'])
         if not job.event_processing_finished:
             return Response(resp)
@@ -3869,13 +3868,41 @@ class JobJobEventsChildrenSummary(APIView):
         # key is counter of meta events (i.e. verbose), value is uuid of the assigned parent
         map_meta_counter_nested_uuid = {}
 
+        # collapsable tree view in the UI only makes sense for tree-like
+        # hierarchy. If ansible is ran with a strategy like free or host_pinned, then
+        # events can be out of sequential order, and no longer follow a tree structure
+        # E1
+        #  E2
+        # E3
+        #  E4  <- parent is E3
+        #  E5  <- parent is E1
+        # in the above, there is no clear way to collapse E1, because E5 comes after
+        # E3, which occurs after E1. Thus the tree view should be disabled.
+
+        # mark the last seen uuid at a given level (0-3)
+        # if a parent uuid is not in this list, then we know the events are not tree-like
+        # and return a response with is_tree: False
+        level_current_uuid = [None, None, None, None]
+
         prev_non_meta_event = events[0]
         for i, e in enumerate(events):
             if not e['event'] in JobJobEventsChildrenSummary.meta_events:
                 prev_non_meta_event = e
             if not e['uuid']:
                 continue
+
+            if not e['event'] in JobJobEventsChildrenSummary.meta_events:
+                level = models.JobEvent.LEVEL_FOR_EVENT[e['event']]
+                level_current_uuid[level] = e['uuid']
+                # if setting level 1, for example, set levels 2 and 3 back to None
+                for u in range(level + 1, len(level_current_uuid)):
+                    level_current_uuid[u] = None
+
             puuid = e['parent_uuid']
+            if puuid and puuid not in level_current_uuid:
+                # improper tree detected, so bail out early
+                resp['is_tree'] = False
+                return Response(resp)
 
             # if event is verbose (or debug, etc), we need to "assign" it a
             # parent. This code looks at the event level of the previous

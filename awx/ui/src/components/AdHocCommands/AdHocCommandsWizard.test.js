@@ -13,13 +13,6 @@ jest.mock('../../api/models/Credentials');
 jest.mock('../../api/models/ExecutionEnvironments');
 jest.mock('../../api/models/Root');
 
-const verbosityOptions = [
-  { value: '0', key: '0', label: '0 (Normal)' },
-  { value: '1', key: '1', label: '1 (Verbose)' },
-  { value: '2', key: '2', label: '2 (More Verbose)' },
-  { value: '3', key: '3', label: '3 (Debug)' },
-  { value: '4', key: '4', label: '4 (Connection Debug)' },
-];
 const moduleOptions = [
   ['command', 'command'],
   ['shell', 'shell'],
@@ -44,7 +37,6 @@ describe('<AdHocCommandsWizard/>', () => {
           adHocItems={adHocItems}
           onLaunch={onLaunch}
           moduleOptions={moduleOptions}
-          verbosityOptions={verbosityOptions}
           onCloseWizard={() => {}}
           credentialTypeId={1}
           organizationId={1}
@@ -368,7 +360,7 @@ describe('<AdHocCommandsWizard/>', () => {
         response: {
           config: {
             method: 'get',
-            url: '/api/v2/credentals',
+            url: '/api/v2/credentials',
           },
           data: 'An error occurred',
           status: 403,

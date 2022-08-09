@@ -49,13 +49,15 @@ export default function useJobEvents(callbacks, jobId, isFlatMode) {
 
   useEffect(() => {
     if (isFlatMode) {
+      callbacks.setJobTreeReady();
       return;
     }
 
     callbacks
       .fetchChildrenSummary()
       .then((result) => {
-        if (result.data.event_processing_finished === false) {
+        const { event_processing_finished, is_tree } = result.data;
+        if (event_processing_finished === false || is_tree === false) {
           callbacks.setForceFlatMode(true);
           callbacks.setJobTreeReady();
           return;

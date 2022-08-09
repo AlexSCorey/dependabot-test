@@ -27,7 +27,7 @@ Here are the main `make` targets:
 
 Notable files:
 
-- `tools/docker-compose/inventory` file - used to configure the local AWX development deployment
+- `tools/docker-compose/inventory` file - used to configure the AWX development environment.
 - `migrate.yml` - playbook for migrating data from Local Docker to the Development Environment
 
 ### Prerequisites
@@ -245,6 +245,7 @@ $ make docker-compose
 - [Start with Minikube](#start-with-minikube)
 - [Keycloak Integration](#keycloak-integration)
 - [OpenLDAP Integration](#openldap-integration)
+- [Splunk Integration](#splunk-integration)
 
 ### Start a Shell
 
@@ -403,10 +404,10 @@ Anytime you want to run an OpenLDAP instance alongside AWX we can start docker-c
 LDAP=true make docker-compose
 ```
 
-Once the containers come up two new ports (389, 636) should be exposed and the LDAP server should be running on those ports. The first port (389) is non-SSL and the second port (636) is SSL enabled. 
+Once the containers come up two new ports (389, 636) should be exposed and the LDAP server should be running on those ports. The first port (389) is non-SSL and the second port (636) is SSL enabled.
 
 Now we are ready to configure and plumb OpenLDAP with AWX. To do this we have provided a playbook which will:
-* Backup and configure the LDAP adapter in AWX. NOTE: this will back up your existing settings but the password fields can not be backuped through the API, you need a DB backup to recover this.
+* Backup and configure the LDAP adapter in AWX. NOTE: this will back up your existing settings but the password fields can not be backed up through the API, you need a DB backup to recover this.
 
 Note: The default configuration will utilize the non-tls connection. If you want to use the tls configuration you will need to work through TLS negotiation issues because the LDAP server is using a self signed certificate.
 
@@ -426,4 +427,64 @@ Once the playbook is done running LDAP should now be setup in your development e
 3. awx_ldap_auditor:audit123
 4. awx_ldap_org_admin:orgadmin123
 
-The first account is a normal user. The second account will be a super user in AWX. The third account will be a system auditor in AWX. The fourth account is an org admin. All users belong to an org called "LDAP Organization". To log in with one of these users go to the AWX login screen enter the username/password. 
+The first account is a normal user. The second account will be a super user in AWX. The third account will be a system auditor in AWX. The fourth account is an org admin. All users belong to an org called "LDAP Organization". To log in with one of these users go to the AWX login screen enter the username/password.
+
+
+### Splunk Integration
+
+Splunk is a log aggregation tool that can be used to test AWX with external logging integration. This section describes how to build a reference Splunk instance and plumb it with your AWX for testing purposes.
+
+First, be sure that you have the awx.awx collection installed by running `make install_collection`.
+
+Next, install the splunk.es collection by running `ansible-galaxy collection install splunk.es`.
+
+Anytime you want to run a Splunk instance alongside AWX we can start docker-compose with the SPLUNK option to get a Splunk instance with the command:
+```bash
+SPLUNK=true make docker-compose
+```
+
+Once the containers come up three new ports (8000, 8089 and 9199) should be exposed and the Splunk server should be running on some of those ports (the 9199 will be created later by the plumbing playbook). The first port (8000) is the non-SSL admin port and you can log into splunk with the credentials admin/splunk_admin. The url will be like http://<server>:8000/ this will be referenced below. The 8089 is the API port that the ansible modules will use to connect to and configure splunk. The 9199 port will be used to construct a TCP listener in Splunk that AWX will forward messages to.
+
+Once the containers are up we are ready to configure and plumb Splunk with AWX. To do this we have provided a playbook which will:
+* Backup and configure the External Logging adapter in AWX. NOTE: this will back up your existing settings but the password fields can not be backed up through the API, you need a DB backup to recover this.
+* Create a TCP port in Splunk for log forwarding
+
+For routing traffic between AWX and Splunk we will use the internal docker compose network. The `Logging Aggregator` will be configured using the internal network machine name of `splunk`.
+
+Once you have have the collections installed (from above) you can run the playbook like:
+```bash
+export CONTROLLER_USERNAME=<your username>
+export CONTROLLER_PASSWORD=<your password>
+ansible-playbook tools/docker-compose/ansible/plumb_splunk.yml
+```
+
+Once the playbook is done running Splunk should now be setup in your development environment. You can log into the admin console (see above for username/password) and click on "Searching and Reporting" in the left hand navigation. In the search box enter `source="http:tower_logging_collections"` and click search.
+
+
+### Prometheus and Grafana integration
+
+Prometheus is a metrics collecting tool, and we support prometheus formatted data at the `api/v2/metrics` endpoint.
+
+Before you run anything, you should perform this basic setup:
+
+1. Copy the prometheus configuration:
+
+```
+cp tools/prometheus/prometheus.yml.example tools/prometheus/prometheus.yml
+```
+
+Set the `username` and `password` in that file to your AWX user. You can also change the scrape interval.
+
+2. (optional) if you are in a clustered environment, you can change the target to `haproxy:8043` so that the incoming prometheus requests go through the load balancer. Leaving it set to `awx1` also works.
+
+You can use this as part of the docker-compose target:
+
+```
+PROMETHEUS=true GRAFANA=true make docker-compose
+```
+
+3. navigate to `http://localhost:9090/targets` and check that the metrics endpoint State is Up.
+4. Click the Graph tab, start typing a metric name, or use the Open metrics explorer button to find a metric to display (next to `Execute` button)
+5. Navigate to `http://localhost:3001`. Sign in, using `admin` for both username and password.
+6. In the left navigation menu go to Dashboards->Browse, find the "awx-demo" and click. These should have graphs.
+6. Now you can modify these and add panels for whichever metrics you like.

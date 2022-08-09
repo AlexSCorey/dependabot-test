@@ -1,4 +1,5 @@
 import React from 'react';
+import { createMemoryHistory } from 'history';
 import { act } from 'react-dom/test-utils';
 import { AuthAPI, RootAPI } from 'api';
 import {
@@ -7,8 +8,15 @@ import {
 } from '../../../testUtils/enzymeHelpers';
 
 import AWXLogin from './Login';
+import { getCurrentUserId } from 'util/auth';
+
+import { SESSION_USER_ID } from '../../constants';
 
 jest.mock('../../api');
+
+jest.mock('util/auth', () => ({
+  getCurrentUserId: jest.fn(),
+}));
 
 RootAPI.readAssetVariables.mockResolvedValue({
   data: {
@@ -72,6 +80,13 @@ describe('<Login />', () => {
         custom_logo: 'images/foo.jpg',
       },
     });
+    Object.defineProperty(window, 'localStorage', {
+      value: {
+        getItem: jest.fn(() => '42'),
+        setItem: jest.fn(() => null),
+      },
+      writable: true,
+    });
   });
 
   afterEach(() => {
@@ -130,7 +145,9 @@ describe('<Login />', () => {
       wrapper = mountWithContexts(<AWXLogin isAuthenticated={() => false} />);
     });
     await findChildren(wrapper);
-    expect(wrapper.find('footer').html()).toContain('<div>TEST</div>');
+    expect(wrapper.find('footer').html()).toContain(
+      '<footer class="pf-c-login__footer" data-cy="login-footer"><div id="custom-button">TEST</div></footer>'
+    );
   });
 
   test('data initialization error is properly handled', async () => {
@@ -276,13 +293,75 @@ describe('<Login />', () => {
     expect(RootAPI.login).toHaveBeenCalledWith('un', 'pw');
   });
 
-  test('render Redirect to / when already authenticated', async () => {
+  test('render Redirect to / when already authenticated as a new user', async () => {
+    getCurrentUserId.mockReturnValue(1);
+    const history = createMemoryHistory({
+      initialEntries: ['/login'],
+    });
     let wrapper;
     await act(async () => {
-      wrapper = mountWithContexts(<AWXLogin isAuthenticated={() => true} />);
+      wrapper = mountWithContexts(<AWXLogin isAuthenticated={() => true} />, {
+        context: {
+          router: { history },
+          session: {
+            authRedirectTo: '/projects',
+            handleSessionContinue: () => {},
+            isSessionExpired: false,
+            isUserBeingLoggedOut: false,
+            loginRedirectOverride: null,
+            logout: () => {},
+            sessionCountdown: 60,
+            setAuthRedirectTo: () => {},
+          },
+        },
+      });
     });
+    expect(window.localStorage.getItem).toHaveBeenCalledWith(SESSION_USER_ID);
+    expect(window.localStorage.setItem).toHaveBeenCalledWith(
+      SESSION_USER_ID,
+      '1'
+    );
     await waitForElement(wrapper, 'Redirect', (el) => el.length === 1);
     await waitForElement(wrapper, 'Redirect', (el) => el.props().to === '/');
+  });
+
+  test('render redirect to authRedirectTo when authenticated as a previous user', async () => {
+    getCurrentUserId.mockReturnValue(42);
+    const history = createMemoryHistory({
+      initialEntries: ['/login'],
+    });
+    let wrapper;
+    await act(async () => {
+      wrapper = mountWithContexts(<AWXLogin isAuthenticated={() => true} />, {
+        context: {
+          router: { history },
+          session: {
+            authRedirectTo: '/projects',
+            handleSessionContinue: () => {},
+            isSessionExpired: false,
+            isUserBeingLoggedOut: false,
+            loginRedirectOverride: null,
+            logout: () => {},
+            sessionCountdown: 60,
+            setAuthRedirectTo: () => {},
+          },
+        },
+      });
+    });
+
+    wrapper.update();
+    expect(window.localStorage.getItem).toHaveBeenCalledWith(SESSION_USER_ID);
+    expect(window.localStorage.setItem).toHaveBeenCalledWith(
+      SESSION_USER_ID,
+      '42'
+    );
+    wrapper.update();
+    await waitForElement(wrapper, 'Redirect', (el) => el.length === 1);
+    await waitForElement(
+      wrapper,
+      'Redirect',
+      (el) => el.props().to === '/projects'
+    );
   });
 
   test('GitHub auth buttons shown', async () => {

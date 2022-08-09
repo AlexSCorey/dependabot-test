@@ -46,7 +46,12 @@ describe('<JobDetail />', () => {
 
     // StatusIcon adds visibly hidden accessibility text " successful "
     assertDetail('Job ID', '2');
-    assertDetail('Status', 'Successful');
+    expect(wrapper.find(`Detail[label="Status"] dd`).text()).toContain(
+      'Successful'
+    );
+    expect(wrapper.find(`Detail[label="Status"] dd`).text()).toContain(
+      'Job explanation placeholder'
+    );
     assertDetail('Started', '8/8/2019, 7:24:18 PM');
     assertDetail('Finished', '8/8/2019, 7:24:50 PM');
     assertDetail('Job Template', mockJobData.summary_fields.job_template.name);
@@ -73,6 +78,7 @@ describe('<JobDetail />', () => {
     );
 
     assertDetail('Job Slice', '0/1');
+    assertDetail('Forks', '42');
 
     const credentialChip = wrapper.find(
       `Detail[label="Credentials"] CredentialChip`
@@ -97,7 +103,9 @@ describe('<JobDetail />', () => {
     const statusLabel = statusDetail.find('StatusLabel');
     expect(statusLabel.prop('status')).toEqual('successful');
 
-    const projectStatusDetail = wrapper.find('Detail[label="Project Status"]');
+    const projectStatusDetail = wrapper.find(
+      'Detail[label="Project Update Status"]'
+    );
     expect(projectStatusDetail.find('StatusLabel')).toHaveLength(1);
     const projectStatusLabel = statusDetail.find('StatusLabel');
     expect(projectStatusLabel.prop('status')).toEqual('successful');
@@ -539,5 +547,65 @@ describe('<JobDetail />', () => {
     assertDetail('Job Type', 'Workflow Job');
     assertDetail('Inventory', 'Demo Inventory');
     assertDetail('Job Slice Parent', 'True');
+  });
+
+  test('should not load Source', () => {
+    wrapper = mountWithContexts(
+      <JobDetail
+        job={{
+          ...mockJobData,
+          summary_fields: {
+            inventory_source: {},
+            user_capabilities: {},
+            inventory: { id: 1 },
+          },
+        }}
+        inventorySourceLabels={[]}
+      />
+    );
+    const source_detail = wrapper.find(`Detail[label="Source"]`).at(0);
+    expect(source_detail.prop('isEmpty')).toEqual(true);
+  });
+
+  test('should not load Credentials', () => {
+    wrapper = mountWithContexts(
+      <JobDetail
+        job={{
+          ...mockJobData,
+          summary_fields: {
+            user_capabilities: {},
+            credentials: [],
+          },
+        }}
+      />
+    );
+    const credentials_detail = wrapper
+      .find(`Detail[label="Credentials"]`)
+      .at(0);
+    expect(credentials_detail.prop('isEmpty')).toEqual(true);
+  });
+
+  test('should not load Job Tags', () => {
+    wrapper = mountWithContexts(
+      <JobDetail
+        job={{
+          ...mockJobData,
+          job_tags: '',
+        }}
+      />
+    );
+    expect(wrapper.find('Detail[label="Job Tags"]').length).toBe(0);
+  });
+
+  test('should not load Skip Tags', () => {
+    wrapper = mountWithContexts(
+      <JobDetail
+        job={{
+          ...mockJobData,
+          skip_tags: '',
+        }}
+      />
+    );
+    expect(wrapper.find('Detail[label="Skip Tags"]').length).toBe(0);
   });
 });

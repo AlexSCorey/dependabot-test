@@ -17,10 +17,8 @@ import time
 import urllib.parse as urlparse
 from uuid import uuid4
 
-
 # Django
 from django.conf import settings
-from django.db import transaction
 
 
 # Runner
@@ -32,7 +30,6 @@ from gitdb.exc import BadName as BadGitName
 
 
 # AWX
-from awx.main.constants import ACTIVE_STATES
 from awx.main.dispatch.publish import task
 from awx.main.dispatch import get_local_queuename
 from awx.main.constants import (
@@ -65,6 +62,7 @@ from awx.main.tasks.callback import (
     RunnerCallbackForProjectUpdate,
     RunnerCallbackForSystemJob,
 )
+from awx.main.tasks.signals import with_signal_handling, signal_callback
 from awx.main.tasks.receptor import AWXReceptorJob
 from awx.main.exceptions import AwxTaskError, PostRunError, ReceptorNodeNotFound
 from awx.main.utils.ansible import read_ansible_config
@@ -78,7 +76,7 @@ from awx.main.utils.common import (
 )
 from awx.conf.license import get_license
 from awx.main.utils.handlers import SpecialInventoryHandler
-from awx.main.tasks.system import handle_success_and_failure_notifications, update_smart_memberships_for_inventory, update_inventory_computed_fields
+from awx.main.tasks.system import update_smart_memberships_for_inventory, update_inventory_computed_fields
 from awx.main.utils.update_model import update_model
 from rest_framework.exceptions import PermissionDenied
 from django.utils.translation import gettext_lazy as _
@@ -118,6 +116,25 @@ class BaseTask(object):
 
     def update_model(self, pk, _attempt=0, **updates):
         return update_model(self.model, pk, _attempt=0, _max_attempts=self.update_attempts, **updates)
+
+    def write_private_data_file(self, private_data_dir, file_name, data, sub_dir=None, file_permissions=0o600):
+        base_path = private_data_dir
+        if sub_dir:
+            base_path = os.path.join(private_data_dir, sub_dir)
+            os.makedirs(base_path, mode=0o700, exist_ok=True)
+
+        # If we got a file name create it, otherwise we want a temp file
+        if file_name:
+            file_path = os.path.join(base_path, file_name)
+        else:
+            handle, file_path = tempfile.mkstemp(dir=base_path)
+            os.close(handle)
+
+        file = Path(file_path)
+        file.touch(mode=file_permissions, exist_ok=True)
+        with open(file_path, 'w') as f:
+            f.write(data)
+        return file_path
 
     def get_path_to(self, *args):
         """
@@ -222,6 +239,7 @@ class BaseTask(object):
         """
         private_data = self.build_private_data(instance, private_data_dir)
         private_data_files = {'credentials': {}}
+        ssh_key_data = None
         if private_data is not None:
             for credential, data in private_data.get('credentials', {}).items():
                 # OpenSSH formatted keys must have a trailing newline to be
@@ -231,34 +249,15 @@ class BaseTask(object):
                 # For credentials used with ssh-add, write to a named pipe which
                 # will be read then closed, instead of leaving the SSH key on disk.
                 if credential and credential.credential_type.namespace in ('ssh', 'scm'):
-                    try:
-                        os.mkdir(os.path.join(private_data_dir, 'env'))
-                    except OSError as e:
-                        if e.errno != errno.EEXIST:
-                            raise
-                    path = os.path.join(private_data_dir, 'env', 'ssh_key')
-                    ansible_runner.utils.open_fifo_write(path, data.encode())
-                    private_data_files['credentials']['ssh'] = path
+                    ssh_key_data = data
                 # Ansible network modules do not yet support ssh-agent.
                 # Instead, ssh private key file is explicitly passed via an
                 # env variable.
                 else:
-                    handle, path = tempfile.mkstemp(dir=os.path.join(private_data_dir, 'env'))
-                    f = os.fdopen(handle, 'w')
-                    f.write(data)
-                    f.close()
-                    os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
-                private_data_files['credentials'][credential] = path
+                    private_data_files['credentials'][credential] = self.write_private_data_file(private_data_dir, None, data, sub_dir='env')
             for credential, data in private_data.get('certificates', {}).items():
-                artifact_dir = os.path.join(private_data_dir, 'artifacts', str(self.instance.id))
-                if not os.path.exists(artifact_dir):
-                    os.makedirs(artifact_dir, mode=0o700)
-                path = os.path.join(artifact_dir, 'ssh_key_data-cert.pub')
-                with open(path, 'w') as f:
-                    f.write(data)
-                    f.close()
-                os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
-        return private_data_files
+                self.write_private_data_file(private_data_dir, 'ssh_key_data-cert.pub', data, sub_dir=os.path.join('artifacts', str(self.instance.id)))
+        return private_data_files, ssh_key_data
 
     def build_passwords(self, instance, runtime_passwords):
         """
@@ -276,23 +275,11 @@ class BaseTask(object):
         """
 
     def _write_extra_vars_file(self, private_data_dir, vars, safe_dict={}):
-        env_path = os.path.join(private_data_dir, 'env')
-        try:
-            os.mkdir(env_path, stat.S_IREAD | stat.S_IWRITE | stat.S_IEXEC)
-        except OSError as e:
-            if e.errno != errno.EEXIST:
-                raise
-
-        path = os.path.join(env_path, 'extravars')
-        handle = os.open(path, os.O_RDWR | os.O_CREAT, stat.S_IREAD | stat.S_IWRITE)
-        f = os.fdopen(handle, 'w')
         if settings.ALLOW_JINJA_IN_EXTRA_VARS == 'always':
-            f.write(yaml.safe_dump(vars))
+            content = yaml.safe_dump(vars)
         else:
-            f.write(safe_dump(vars, safe_dict))
-        f.close()
-        os.chmod(path, stat.S_IRUSR)
-        return path
+            content = safe_dump(vars, safe_dict)
+        return self.write_private_data_file(private_data_dir, 'extravars', content, sub_dir='env')
 
     def add_awx_venv(self, env):
         env['VIRTUAL_ENV'] = settings.AWX_VENV_PATH
@@ -330,32 +317,14 @@ class BaseTask(object):
         # maintain a list of host_name --> host_id
         # so we can associate emitted events to Host objects
         self.runner_callback.host_map = {hostname: hv.pop('remote_tower_id', '') for hostname, hv in script_data.get('_meta', {}).get('hostvars', {}).items()}
-        json_data = json.dumps(script_data)
-        path = os.path.join(private_data_dir, 'inventory')
-        fn = os.path.join(path, 'hosts')
-        with open(fn, 'w') as f:
-            os.chmod(fn, stat.S_IRUSR | stat.S_IXUSR | stat.S_IWUSR)
-            f.write('#! /usr/bin/env python3\n# -*- coding: utf-8 -*-\nprint(%r)\n' % json_data)
-        return fn
+        file_content = '#! /usr/bin/env python3\n# -*- coding: utf-8 -*-\nprint(%r)\n' % json.dumps(script_data)
+        return self.write_private_data_file(private_data_dir, 'hosts', file_content, sub_dir='inventory', file_permissions=0o700)
 
     def build_args(self, instance, private_data_dir, passwords):
         raise NotImplementedError
 
     def write_args_file(self, private_data_dir, args):
-        env_path = os.path.join(private_data_dir, 'env')
-        try:
-            os.mkdir(env_path, stat.S_IREAD | stat.S_IWRITE | stat.S_IEXEC)
-        except OSError as e:
-            if e.errno != errno.EEXIST:
-                raise
-
-        path = os.path.join(env_path, 'cmdline')
-        handle = os.open(path, os.O_RDWR | os.O_CREAT, stat.S_IREAD | stat.S_IWRITE)
-        f = os.fdopen(handle, 'w')
-        f.write(ansible_runner.utils.args2cmdline(*args))
-        f.close()
-        os.chmod(path, stat.S_IRUSR)
-        return path
+        return self.write_private_data_file(private_data_dir, 'cmdline', ansible_runner.utils.args2cmdline(*args), sub_dir='env')
 
     def build_credentials_list(self, instance):
         return []
@@ -424,6 +393,7 @@ class BaseTask(object):
                 instance.save(update_fields=['ansible_version'])
 
     @with_path_cleanup
+    @with_signal_handling
     def run(self, pk, **kwargs):
         """
         Run the job/task and capture its output.
@@ -440,7 +410,6 @@ class BaseTask(object):
         self.instance = self.update_model(pk, status='running', start_args='')  # blank field to remove encrypted passwords
         self.instance.websocket_emit_status("running")
         status, rc = 'error', None
-        extra_update_fields = {}
         fact_modification_times = {}
         self.runner_callback.event_ct = 0
 
@@ -456,7 +425,7 @@ class BaseTask(object):
             private_data_dir = self.build_private_data_dir(self.instance)
             self.pre_run_hook(self.instance, private_data_dir)
             self.instance.log_lifecycle("preparing_playbook")
-            if self.instance.cancel_flag:
+            if self.instance.cancel_flag or signal_callback():
                 self.instance = self.update_model(self.instance.pk, status='canceled')
             if self.instance.status != 'running':
                 # Stop the task chain and prevent starting the job if it has
@@ -477,7 +446,7 @@ class BaseTask(object):
                 )
 
             # May have to serialize the value
-            private_data_files = self.build_private_data_files(self.instance, private_data_dir)
+            private_data_files, ssh_key_data = self.build_private_data_files(self.instance, private_data_dir)
             passwords = self.build_passwords(self.instance, kwargs)
             self.build_extra_vars_file(self.instance, private_data_dir)
             args = self.build_args(self.instance, private_data_dir, passwords)
@@ -512,17 +481,12 @@ class BaseTask(object):
                 'playbook': self.build_playbook_path_relative_to_cwd(self.instance, private_data_dir),
                 'inventory': self.build_inventory(self.instance, private_data_dir),
                 'passwords': expect_passwords,
+                'suppress_env_files': getattr(settings, 'AWX_RUNNER_OMIT_ENV_FILES', True),
                 'envvars': env,
-                'settings': {
-                    'job_timeout': self.get_instance_timeout(self.instance),
-                    'suppress_ansible_output': True,
-                    'suppress_output_file': True,
-                },
             }
 
-            idle_timeout = getattr(settings, 'DEFAULT_JOB_IDLE_TIMEOUT', 0)
-            if idle_timeout > 0:
-                params['settings']['idle_timeout'] = idle_timeout
+            if ssh_key_data is not None:
+                params['ssh_key'] = ssh_key_data
 
             if isinstance(self.instance, AdHocCommand):
                 params['module'] = self.build_module_name(self.instance)
@@ -544,6 +508,19 @@ class BaseTask(object):
             for v in ['passwords', 'playbook', 'inventory']:
                 if not params[v]:
                     del params[v]
+
+            runner_settings = {
+                'job_timeout': self.get_instance_timeout(self.instance),
+                'suppress_ansible_output': True,
+                'suppress_output_file': getattr(settings, 'AWX_RUNNER_SUPPRESS_OUTPUT_FILE', True),
+            }
+
+            idle_timeout = getattr(settings, 'DEFAULT_JOB_IDLE_TIMEOUT', 0)
+            if idle_timeout > 0:
+                runner_settings['idle_timeout'] = idle_timeout
+
+            # Write out our own settings file
+            self.write_private_data_file(private_data_dir, 'settings', json.dumps(runner_settings), sub_dir='env')
 
             self.instance.log_lifecycle("running_playbook")
             if isinstance(self.instance, SystemJob):
@@ -567,20 +544,19 @@ class BaseTask(object):
             rc = res.rc
 
             if status in ('timeout', 'error'):
-                job_explanation = f"Job terminated due to {status}"
-                self.instance.job_explanation = self.instance.job_explanation or job_explanation
+                self.runner_callback.delay_update(skip_if_already_set=True, job_explanation=f"Job terminated due to {status}")
                 if status == 'timeout':
                     status = 'failed'
-
-                extra_update_fields['job_explanation'] = self.instance.job_explanation
-                # ensure failure notification sends even if playbook_on_stats event is not triggered
-                handle_success_and_failure_notifications.apply_async([self.instance.id])
-
+            elif status == 'canceled':
+                self.instance = self.update_model(pk)
+                if (getattr(self.instance, 'cancel_flag', False) is False) and signal_callback():
+                    self.runner_callback.delay_update(job_explanation="Task was canceled due to receiving a shutdown signal.")
+                    status = 'failed'
         except ReceptorNodeNotFound as exc:
-            extra_update_fields['job_explanation'] = str(exc)
+            self.runner_callback.delay_update(job_explanation=str(exc))
         except Exception:
             # this could catch programming or file system errors
-            extra_update_fields['result_traceback'] = traceback.format_exc()
+            self.runner_callback.delay_update(result_traceback=traceback.format_exc())
             logger.exception('%s Exception occurred while running task', self.instance.log_format)
         finally:
             logger.debug('%s finished running, producing %s events.', self.instance.log_format, self.runner_callback.event_ct)
@@ -590,14 +566,19 @@ class BaseTask(object):
         except PostRunError as exc:
             if status == 'successful':
                 status = exc.status
-                extra_update_fields['job_explanation'] = exc.args[0]
+                self.runner_callback.delay_update(job_explanation=exc.args[0])
                 if exc.tb:
-                    extra_update_fields['result_traceback'] = exc.tb
+                    self.runner_callback.delay_update(result_traceback=exc.tb)
         except Exception:
             logger.exception('{} Post run hook errored.'.format(self.instance.log_format))
 
         self.instance = self.update_model(pk)
-        self.instance = self.update_model(pk, status=status, emitted_events=self.runner_callback.event_ct, **extra_update_fields)
+        self.instance = self.update_model(pk, status=status, select_for_update=True, **self.runner_callback.get_delayed_update_fields())
+
+        # Field host_status_counts is used as a metric to check if event processing is finished
+        # we send notifications if it is, if not, callback receiver will send them
+        if (self.instance.host_status_counts is not None) or (not self.runner_callback.wrapup_event_dispatched):
+            self.instance.send_notification_templates('succeeded' if status == 'successful' else 'failed')
 
         try:
             self.final_run_hook(self.instance, status, private_data_dir, fact_modification_times)
@@ -1192,64 +1173,6 @@ class RunProjectUpdate(BaseTask):
         d[r'^Are you sure you want to continue connecting \(yes/no\)\?\s*?$'] = 'yes'
         return d
 
-    def _update_dependent_inventories(self, project_update, dependent_inventory_sources):
-        scm_revision = project_update.project.scm_revision
-        inv_update_class = InventoryUpdate._get_task_class()
-        for inv_src in dependent_inventory_sources:
-            if not inv_src.update_on_project_update:
-                continue
-            if inv_src.scm_last_revision == scm_revision:
-                logger.debug('Skipping SCM inventory update for `{}` because ' 'project has not changed.'.format(inv_src.name))
-                continue
-            logger.debug('Local dependent inventory update for `{}`.'.format(inv_src.name))
-            with transaction.atomic():
-                if InventoryUpdate.objects.filter(inventory_source=inv_src, status__in=ACTIVE_STATES).exists():
-                    logger.debug('Skipping SCM inventory update for `{}` because ' 'another update is already active.'.format(inv_src.name))
-                    continue
-
-                if settings.IS_K8S:
-                    instance_group = InventoryUpdate(inventory_source=inv_src).preferred_instance_groups[0]
-                else:
-                    instance_group = project_update.instance_group
-
-                local_inv_update = inv_src.create_inventory_update(
-                    _eager_fields=dict(
-                        launch_type='scm',
-                        status='running',
-                        instance_group=instance_group,
-                        execution_node=project_update.execution_node,
-                        controller_node=project_update.execution_node,
-                        source_project_update=project_update,
-                        celery_task_id=project_update.celery_task_id,
-                    )
-                )
-                local_inv_update.log_lifecycle("controller_node_chosen")
-                local_inv_update.log_lifecycle("execution_node_chosen")
-            try:
-                create_partition(local_inv_update.event_class._meta.db_table, start=local_inv_update.created)
-                inv_update_class().run(local_inv_update.id)
-            except Exception:
-                logger.exception('{} Unhandled exception updating dependent SCM inventory sources.'.format(project_update.log_format))
-
-            try:
-                project_update.refresh_from_db()
-            except ProjectUpdate.DoesNotExist:
-                logger.warning('Project update deleted during updates of dependent SCM inventory sources.')
-                break
-            try:
-                local_inv_update.refresh_from_db()
-            except InventoryUpdate.DoesNotExist:
-                logger.warning('%s Dependent inventory update deleted during execution.', project_update.log_format)
-                continue
-            if project_update.cancel_flag:
-                logger.info('Project update {} was canceled while updating dependent inventories.'.format(project_update.log_format))
-                break
-            if local_inv_update.cancel_flag:
-                logger.info('Continuing to process project dependencies after {} was canceled'.format(local_inv_update.log_format))
-            if local_inv_update.status == 'successful':
-                inv_src.scm_last_revision = scm_revision
-                inv_src.save(update_fields=['scm_last_revision'])
-
     def release_lock(self, instance):
         try:
             fcntl.lockf(self.lock_fd, fcntl.LOCK_UN)
@@ -1459,12 +1382,6 @@ class RunProjectUpdate(BaseTask):
             p.inventory_files = p.inventories
             p.save(update_fields=['scm_revision', 'playbook_files', 'inventory_files'])
 
-        # Update any inventories that depend on this project
-        dependent_inventory_sources = p.scm_inventory_sources.filter(update_on_project_update=True)
-        if len(dependent_inventory_sources) > 0:
-            if status == 'successful' and instance.launch_type != 'sync':
-                self._update_dependent_inventories(instance, dependent_inventory_sources)
-
     def build_execution_environment_params(self, instance, private_data_dir):
         if settings.IS_K8S:
             return {}
@@ -1475,8 +1392,8 @@ class RunProjectUpdate(BaseTask):
         params.setdefault('container_volume_mounts', [])
         params['container_volume_mounts'].extend(
             [
-                f"{project_path}:{project_path}:Z",
-                f"{cache_path}:{cache_path}:Z",
+                f"{project_path}:{project_path}:z",
+                f"{cache_path}:{cache_path}:z",
             ]
         )
         return params
@@ -1569,13 +1486,7 @@ class RunInventoryUpdate(BaseTask):
         return env
 
     def write_args_file(self, private_data_dir, args):
-        path = os.path.join(private_data_dir, 'args')
-        handle = os.open(path, os.O_RDWR | os.O_CREAT, stat.S_IREAD | stat.S_IWRITE)
-        f = os.fdopen(handle, 'w')
-        f.write(' '.join(args))
-        f.close()
-        os.chmod(path, stat.S_IRUSR)
-        return path
+        return self.write_private_data_file(private_data_dir, 'args', ' '.join(args))
 
     def build_args(self, inventory_update, private_data_dir, passwords):
         """Build the command line argument list for running an inventory
@@ -1631,11 +1542,7 @@ class RunInventoryUpdate(BaseTask):
         if injector is not None:
             content = injector.inventory_contents(inventory_update, private_data_dir)
             # must be a statically named file
-            inventory_path = os.path.join(private_data_dir, 'inventory', injector.filename)
-            with open(inventory_path, 'w') as f:
-                f.write(content)
-            os.chmod(inventory_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
-
+            self.write_private_data_file(private_data_dir, injector.filename, content, sub_dir='inventory', file_permissions=0o700)
             rel_path = os.path.join('inventory', injector.filename)
         elif src == 'scm':
             rel_path = os.path.join('project', inventory_update.source_path)
@@ -1654,9 +1561,7 @@ class RunInventoryUpdate(BaseTask):
         source_project = None
         if inventory_update.inventory_source:
             source_project = inventory_update.inventory_source.source_project
-        if (
-            inventory_update.source == 'scm' and inventory_update.launch_type != 'scm' and source_project and source_project.scm_type
-        ):  # never ever update manual projects
+        if inventory_update.source == 'scm' and source_project and source_project.scm_type:  # never ever update manual projects
 
             # Check if the content cache exists, so that we do not unnecessarily re-download roles
             sync_needs = ['update_{}'.format(source_project.scm_type)]
@@ -1689,8 +1594,6 @@ class RunInventoryUpdate(BaseTask):
                 sync_task = project_update_task(job_private_data_dir=private_data_dir)
                 sync_task.run(local_project_sync.id)
                 local_project_sync.refresh_from_db()
-                inventory_update.inventory_source.scm_last_revision = local_project_sync.scm_revision
-                inventory_update.inventory_source.save(update_fields=['scm_last_revision'])
             except Exception:
                 inventory_update = self.update_model(
                     inventory_update.pk,
@@ -1701,9 +1604,6 @@ class RunInventoryUpdate(BaseTask):
                     ),
                 )
                 raise
-        elif inventory_update.source == 'scm' and inventory_update.launch_type == 'scm' and source_project:
-            # This follows update, not sync, so make copy here
-            RunProjectUpdate.make_local_copy(source_project, private_data_dir)
 
     def post_run_hook(self, inventory_update, status):
         super(RunInventoryUpdate, self).post_run_hook(inventory_update, status)
@@ -1962,13 +1862,7 @@ class RunSystemJob(BaseTask):
         return args
 
     def write_args_file(self, private_data_dir, args):
-        path = os.path.join(private_data_dir, 'args')
-        handle = os.open(path, os.O_RDWR | os.O_CREAT, stat.S_IREAD | stat.S_IWRITE)
-        f = os.fdopen(handle, 'w')
-        f.write(' '.join(args))
-        f.close()
-        os.chmod(path, stat.S_IRUSR)
-        return path
+        return self.write_private_data_file(private_data_dir, 'args', ' '.join(args))
 
     def build_env(self, instance, private_data_dir, private_data_files=None):
         base_env = super(RunSystemJob, self).build_env(instance, private_data_dir, private_data_files=private_data_files)

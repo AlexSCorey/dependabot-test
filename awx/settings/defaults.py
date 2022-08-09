@@ -241,6 +241,10 @@ SUBSYSTEM_METRICS_INTERVAL_SEND_METRICS = 3
 # Interval in seconds for saving local metrics to redis
 SUBSYSTEM_METRICS_INTERVAL_SAVE_TO_REDIS = 2
 
+# Record task manager metrics at the following interval in seconds
+# If using Prometheus, it is recommended to be => the Prometheus scrape interval
+SUBSYSTEM_METRICS_TASK_MANAGER_RECORD_INTERVAL = 15
+
 # The maximum allowed jobs to start on a given task manager cycle
 START_TASK_LIMIT = 100
 
@@ -944,11 +948,18 @@ AWX_CALLBACK_PROFILE = False
 # Delete temporary directories created to store playbook run-time
 AWX_CLEANUP_PATHS = True
 
+# Allow ansible-runner to store env folder (may contain sensitive information)
+AWX_RUNNER_OMIT_ENV_FILES = True
+
+# Allow ansible-runner to save ansible output (may cause performance issues)
+AWX_RUNNER_SUPPRESS_OUTPUT_FILE = True
+
 # Delete completed work units in receptor
 RECEPTOR_RELEASE_WORK = True
 
 MIDDLEWARE = [
     'django_guid.middleware.guid_middleware',
+    'awx.main.middleware.SettingsCacheMiddleware',
     'awx.main.middleware.TimingMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'awx.main.middleware.MigrationRanCheckMiddleware',
@@ -990,9 +1001,6 @@ BROADCAST_WEBSOCKET_NEW_INSTANCE_POLL_RATE_SECONDS = 10
 
 # How often websocket process will generate stats
 BROADCAST_WEBSOCKET_STATS_POLL_RATE_SECONDS = 5
-
-# Number of times to retry sending a notification when waiting on a job to finish.
-AWX_NOTIFICATION_JOB_FINISH_MAX_RETRY = 5
 
 DJANGO_GUID = {'GUID_HEADER_NAME': 'X-API-Request-Id'}
 

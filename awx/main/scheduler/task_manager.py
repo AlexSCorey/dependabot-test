@@ -6,7 +6,9 @@ from datetime import timedelta
 import logging
 import uuid
 import json
-from types import SimpleNamespace
+import time
+import sys
+import signal
 
 # Django
 from django.db import transaction, connection
@@ -19,7 +21,6 @@ from awx.main.dispatch.reaper import reap_job
 from awx.main.models import (
     AdHocCommand,
     Instance,
-    InstanceGroup,
     InventorySource,
     InventoryUpdate,
     Job,
@@ -36,11 +37,26 @@ from awx.main.utils.pglock import advisory_lock
 from awx.main.utils import get_type_for_model, task_manager_bulk_reschedule, schedule_task_manager
 from awx.main.utils.common import create_partition
 from awx.main.signals import disable_activity_stream
+from awx.main.constants import ACTIVE_STATES
 from awx.main.scheduler.dependency_graph import DependencyGraph
+from awx.main.scheduler.task_manager_models import TaskManagerInstances
+from awx.main.scheduler.task_manager_models import TaskManagerInstanceGroups
+import awx.main.analytics.subsystem_metrics as s_metrics
 from awx.main.utils import decrypt_field
 
 
 logger = logging.getLogger('awx.main.scheduler')
+
+
+def timeit(func):
+    def inner(*args, **kwargs):
+        t_now = time.perf_counter()
+        result = func(*args, **kwargs)
+        dur = time.perf_counter() - t_now
+        args[0].subsystem_metrics.inc("task_manager_" + func.__name__ + "_seconds", dur)
+        return result
+
+    return inner
 
 
 class TaskManager:
@@ -54,49 +70,29 @@ class TaskManager:
         The NOOP case is short-circuit logic. If the task manager realizes that another instance
         of the task manager is already running, then it short-circuits and decides not to run.
         """
-        self.graph = dict()
         # start task limit indicates how many pending jobs can be started on this
         # .schedule() run. Starting jobs is expensive, and there is code in place to reap
         # the task manager after 5 minutes. At scale, the task manager can easily take more than
         # 5 minutes to start pending jobs. If this limit is reached, pending jobs
         # will no longer be started and will be started on the next task manager cycle.
         self.start_task_limit = settings.START_TASK_LIMIT
-
         self.time_delta_job_explanation = timedelta(seconds=30)
+        self.subsystem_metrics = s_metrics.Metrics(auto_pipe_execute=False)
+        # initialize each metric to 0 and force metric_has_changed to true. This
+        # ensures each task manager metric will be overridden when pipe_execute
+        # is called later.
+        for m in self.subsystem_metrics.METRICS:
+            if m.startswith("task_manager"):
+                self.subsystem_metrics.set(m, 0)
 
     def after_lock_init(self, all_sorted_tasks):
         """
         Init AFTER we know this instance of the task manager will run because the lock is acquired.
         """
-        instances = Instance.objects.filter(hostname__isnull=False, enabled=True).exclude(node_type='hop')
-        self.real_instances = {i.hostname: i for i in instances}
-        self.controlplane_ig = None
         self.dependency_graph = DependencyGraph()
-
-        instances_partial = [
-            SimpleNamespace(
-                obj=instance,
-                node_type=instance.node_type,
-                remaining_capacity=instance.capacity,  # Updated with Instance.update_remaining_capacity by looking at all active tasks
-                capacity=instance.capacity,
-                hostname=instance.hostname,
-            )
-            for instance in instances
-        ]
-
-        instances_by_hostname = {i.hostname: i for i in instances_partial}
-
-        # updates remaining capacity value based on currently running and waiting tasks
-        Instance.update_remaining_capacity(instances_by_hostname, all_sorted_tasks)
-
-        for rampart_group in InstanceGroup.objects.prefetch_related('instances'):
-            if rampart_group.name == settings.DEFAULT_CONTROL_PLANE_QUEUE_NAME:
-                self.controlplane_ig = rampart_group
-            self.graph[rampart_group.name] = dict(
-                instances=[
-                    instances_by_hostname[instance.hostname] for instance in rampart_group.instances.all() if instance.hostname in instances_by_hostname
-                ],
-            )
+        self.instances = TaskManagerInstances(all_sorted_tasks)
+        self.instance_groups = TaskManagerInstanceGroups(instances_by_hostname=self.instances)
+        self.controlplane_ig = self.instance_groups.controlplane_ig
 
     def job_blocked_by(self, task):
         # TODO: I'm not happy with this, I think blocking behavior should be decided outside of the dependency graph
@@ -106,13 +102,27 @@ class TaskManager:
         if blocked_by:
             return blocked_by
 
-        if not task.dependent_jobs_finished():
-            blocked_by = task.dependent_jobs.first()
-            if blocked_by:
-                return blocked_by
+        for dep in task.dependent_jobs.all():
+            if dep.status in ACTIVE_STATES:
+                return dep
+            # if we detect a failed or error dependency, go ahead and fail this
+            # task. The errback on the dependency takes some time to trigger,
+            # and we don't want the task to enter running state if its
+            # dependency has failed or errored.
+            elif dep.status in ("error", "failed"):
+                task.status = 'failed'
+                task.job_explanation = 'Previous Task Failed: {"job_type": "%s", "job_name": "%s", "job_id": "%s"}' % (
+                    get_type_for_model(type(dep)),
+                    dep.name,
+                    dep.id,
+                )
+                task.save(update_fields=['status', 'job_explanation'])
+                task.websocket_emit_status('failed')
+                return dep
 
         return None
 
+    @timeit
     def get_tasks(self, status_list=('pending', 'waiting', 'running')):
         jobs = [j for j in Job.objects.filter(status__in=status_list).prefetch_related('instance_group')]
         inventory_updates_qs = (
@@ -138,6 +148,7 @@ class TaskManager:
                 inventory_ids.add(task.inventory_id)
         return [invsrc for invsrc in InventorySource.objects.filter(inventory_id__in=inventory_ids, update_on_launch=True)]
 
+    @timeit
     def spawn_workflow_graph_jobs(self, workflow_jobs):
         for workflow_job in workflow_jobs:
             if workflow_job.cancel_flag:
@@ -237,14 +248,16 @@ class TaskManager:
                 workflow_job.save(update_fields=update_fields)
                 status_changed = True
             if status_changed:
+                if workflow_job.spawned_by_workflow:
+                    schedule_task_manager()
                 workflow_job.websocket_emit_status(workflow_job.status)
                 # Operations whose queries rely on modifications made during the atomic scheduling session
                 workflow_job.send_notification_templates('succeeded' if workflow_job.status == 'successful' else 'failed')
-                if workflow_job.spawned_by_workflow:
-                    schedule_task_manager()
         return result
 
-    def start_task(self, task, rampart_group, dependent_tasks=None, instance=None):
+    @timeit
+    def start_task(self, task, instance_group, dependent_tasks=None, instance=None):
+        self.subsystem_metrics.inc("task_manager_tasks_started", 1)
         self.start_task_limit -= 1
         if self.start_task_limit == 0:
             # schedule another run immediately after this task manager
@@ -277,10 +290,10 @@ class TaskManager:
                 schedule_task_manager()
             # at this point we already have control/execution nodes selected for the following cases
             else:
-                task.instance_group = rampart_group
+                task.instance_group = instance_group
                 execution_node_msg = f' and execution node {task.execution_node}' if task.execution_node else ''
                 logger.debug(
-                    f'Submitting job {task.log_format} controlled by {task.controller_node} to instance group {rampart_group.name}{execution_node_msg}.'
+                    f'Submitting job {task.log_format} controlled by {task.controller_node} to instance group {instance_group.name}{execution_node_msg}.'
                 )
             with disable_activity_stream():
                 task.celery_task_id = str(uuid.uuid4())
@@ -304,12 +317,15 @@ class TaskManager:
         task.websocket_emit_status(task.status)  # adds to on_commit
         connection.on_commit(post_commit)
 
+    @timeit
     def process_running_tasks(self, running_tasks):
         for task in running_tasks:
             self.dependency_graph.add_job(task)
 
-    def create_project_update(self, task):
-        project_task = Project.objects.get(id=task.project_id).create_project_update(_eager_fields=dict(launch_type='dependency'))
+    def create_project_update(self, task, project_id=None):
+        if project_id is None:
+            project_id = task.project_id
+        project_task = Project.objects.get(id=project_id).create_project_update(_eager_fields=dict(launch_type='dependency'))
 
         # Project created 1 seconds behind
         project_task.created = task.created - timedelta(seconds=1)
@@ -329,13 +345,9 @@ class TaskManager:
         # self.process_inventory_sources(inventory_sources)
         return inventory_task
 
-    def capture_chain_failure_dependencies(self, task, dependencies):
+    def add_dependencies(self, task, dependencies):
         with disable_activity_stream():
             task.dependent_jobs.add(*dependencies)
-
-            for dep in dependencies:
-                # Add task + all deps except self
-                dep.dependent_jobs.add(*([task] + [d for d in dependencies if d != dep]))
 
     def get_latest_inventory_update(self, inventory_source):
         latest_inventory_update = InventoryUpdate.objects.filter(inventory_source=inventory_source).order_by("-created")
@@ -362,8 +374,8 @@ class TaskManager:
             return True
         return False
 
-    def get_latest_project_update(self, job):
-        latest_project_update = ProjectUpdate.objects.filter(project=job.project, job_type='check').order_by("-created")
+    def get_latest_project_update(self, project_id):
+        latest_project_update = ProjectUpdate.objects.filter(project=project_id, job_type='check').order_by("-created")
         if not latest_project_update.exists():
             return None
         return latest_project_update.first()
@@ -403,47 +415,73 @@ class TaskManager:
             return True
         return False
 
+    def gen_dep_for_job(self, task):
+        created_dependencies = []
+        dependencies = []
+        # TODO: Can remove task.project None check after scan-job-default-playbook is removed
+        if task.project is not None and task.project.scm_update_on_launch is True:
+            latest_project_update = self.get_latest_project_update(task.project_id)
+            if self.should_update_related_project(task, latest_project_update):
+                latest_project_update = self.create_project_update(task)
+                created_dependencies.append(latest_project_update)
+            dependencies.append(latest_project_update)
+
+        # Inventory created 2 seconds behind job
+        try:
+            start_args = json.loads(decrypt_field(task, field_name="start_args"))
+        except ValueError:
+            start_args = dict()
+        # generator for inventory sources related to this task
+        task_inv_sources = (invsrc for invsrc in self.all_inventory_sources if invsrc.inventory_id == task.inventory_id)
+        for inventory_source in task_inv_sources:
+            if "inventory_sources_already_updated" in start_args and inventory_source.id in start_args['inventory_sources_already_updated']:
+                continue
+            if not inventory_source.update_on_launch:
+                continue
+            latest_inventory_update = self.get_latest_inventory_update(inventory_source)
+            if self.should_update_inventory_source(task, latest_inventory_update):
+                inventory_task = self.create_inventory_update(task, inventory_source)
+                created_dependencies.append(inventory_task)
+                dependencies.append(inventory_task)
+            else:
+                dependencies.append(latest_inventory_update)
+
+        if dependencies:
+            self.add_dependencies(task, dependencies)
+
+        return created_dependencies
+
+    def gen_dep_for_inventory_update(self, inventory_task):
+        created_dependencies = []
+        if inventory_task.source == "scm":
+            invsrc = inventory_task.inventory_source
+            if not invsrc.source_project.scm_update_on_launch:
+                return created_dependencies
+
+            latest_src_project_update = self.get_latest_project_update(invsrc.source_project_id)
+            if self.should_update_related_project(inventory_task, latest_src_project_update):
+                latest_src_project_update = self.create_project_update(inventory_task, project_id=invsrc.source_project_id)
+                created_dependencies.append(latest_src_project_update)
+            self.add_dependencies(inventory_task, [latest_src_project_update])
+            latest_src_project_update.scm_inventory_updates.add(inventory_task)
+        return created_dependencies
+
+    @timeit
     def generate_dependencies(self, undeped_tasks):
         created_dependencies = []
         for task in undeped_tasks:
             task.log_lifecycle("acknowledged")
-            dependencies = []
-            if not type(task) is Job:
+            if type(task) is Job:
+                created_dependencies += self.gen_dep_for_job(task)
+            elif type(task) is InventoryUpdate:
+                created_dependencies += self.gen_dep_for_inventory_update(task)
+            else:
                 continue
-            # TODO: Can remove task.project None check after scan-job-default-playbook is removed
-            if task.project is not None and task.project.scm_update_on_launch is True:
-                latest_project_update = self.get_latest_project_update(task)
-                if self.should_update_related_project(task, latest_project_update):
-                    project_task = self.create_project_update(task)
-                    created_dependencies.append(project_task)
-                    dependencies.append(project_task)
-                else:
-                    dependencies.append(latest_project_update)
-
-            # Inventory created 2 seconds behind job
-            try:
-                start_args = json.loads(decrypt_field(task, field_name="start_args"))
-            except ValueError:
-                start_args = dict()
-            for inventory_source in [invsrc for invsrc in self.all_inventory_sources if invsrc.inventory == task.inventory]:
-                if "inventory_sources_already_updated" in start_args and inventory_source.id in start_args['inventory_sources_already_updated']:
-                    continue
-                if not inventory_source.update_on_launch:
-                    continue
-                latest_inventory_update = self.get_latest_inventory_update(inventory_source)
-                if self.should_update_inventory_source(task, latest_inventory_update):
-                    inventory_task = self.create_inventory_update(task, inventory_source)
-                    created_dependencies.append(inventory_task)
-                    dependencies.append(inventory_task)
-                else:
-                    dependencies.append(latest_inventory_update)
-
-            if len(dependencies) > 0:
-                self.capture_chain_failure_dependencies(task, dependencies)
-
         UnifiedJob.objects.filter(pk__in=[task.pk for task in undeped_tasks]).update(dependencies_processed=True)
+
         return created_dependencies
 
+    @timeit
     def process_pending_tasks(self, pending_tasks):
         running_workflow_templates = {wf.unified_job_template_id for wf in self.get_running_workflow_jobs()}
         tasks_to_update_job_explanation = []
@@ -452,6 +490,7 @@ class TaskManager:
                 break
             blocked_by = self.job_blocked_by(task)
             if blocked_by:
+                self.subsystem_metrics.inc("task_manager_tasks_blocked", 1)
                 task.log_lifecycle("blocked", blocked_by=blocked_by)
                 job_explanation = gettext_noop(f"waiting for {blocked_by._meta.model_name}-{blocked_by.id} to finish")
                 if task.job_explanation != job_explanation:
@@ -478,8 +517,8 @@ class TaskManager:
                 control_impact = task.task_impact + settings.AWX_CONTROL_NODE_TASK_IMPACT
             else:
                 control_impact = settings.AWX_CONTROL_NODE_TASK_IMPACT
-            control_instance = InstanceGroup.fit_task_to_most_remaining_capacity_instance(
-                task, self.graph[settings.DEFAULT_CONTROL_PLANE_QUEUE_NAME]['instances'], impact=control_impact, capacity_type='control'
+            control_instance = self.instance_groups.fit_task_to_most_remaining_capacity_instance(
+                task, instance_group_name=settings.DEFAULT_CONTROL_PLANE_QUEUE_NAME, impact=control_impact, capacity_type='control'
             )
             if not control_instance:
                 self.task_needs_capacity(task, tasks_to_update_job_explanation)
@@ -491,31 +530,31 @@ class TaskManager:
             # All task.capacity_type == 'control' jobs should run on control plane, no need to loop over instance groups
             if task.capacity_type == 'control':
                 task.execution_node = control_instance.hostname
-                control_instance.remaining_capacity = max(0, control_instance.remaining_capacity - control_impact)
+                control_instance.consume_capacity(control_impact)
                 self.dependency_graph.add_job(task)
-                execution_instance = self.real_instances[control_instance.hostname]
+                execution_instance = self.instances[control_instance.hostname].obj
                 task.log_lifecycle("controller_node_chosen")
                 task.log_lifecycle("execution_node_chosen")
                 self.start_task(task, self.controlplane_ig, task.get_jobs_fail_chain(), execution_instance)
                 found_acceptable_queue = True
                 continue
 
-            for rampart_group in preferred_instance_groups:
-                if rampart_group.is_container_group:
+            for instance_group in preferred_instance_groups:
+                if instance_group.is_container_group:
                     self.dependency_graph.add_job(task)
-                    self.start_task(task, rampart_group, task.get_jobs_fail_chain(), None)
+                    self.start_task(task, instance_group, task.get_jobs_fail_chain(), None)
                     found_acceptable_queue = True
                     break
 
                 # TODO: remove this after we have confidence that OCP control nodes are reporting node_type=control
                 if settings.IS_K8S and task.capacity_type == 'execution':
-                    logger.debug("Skipping group {}, task cannot run on control plane".format(rampart_group.name))
+                    logger.debug("Skipping group {}, task cannot run on control plane".format(instance_group.name))
                     continue
                 # at this point we know the instance group is NOT a container group
                 # because if it was, it would have started the task and broke out of the loop.
-                execution_instance = InstanceGroup.fit_task_to_most_remaining_capacity_instance(
-                    task, self.graph[rampart_group.name]['instances'], add_hybrid_control_cost=True
-                ) or InstanceGroup.find_largest_idle_instance(self.graph[rampart_group.name]['instances'], capacity_type=task.capacity_type)
+                execution_instance = self.instance_groups.fit_task_to_most_remaining_capacity_instance(
+                    task, instance_group_name=instance_group.name, add_hybrid_control_cost=True
+                ) or self.instance_groups.find_largest_idle_instance(instance_group_name=instance_group.name, capacity_type=task.capacity_type)
 
                 if execution_instance:
                     task.execution_node = execution_instance.hostname
@@ -524,24 +563,24 @@ class TaskManager:
                         control_instance = execution_instance
                         task.controller_node = execution_instance.hostname
 
-                    control_instance.remaining_capacity = max(0, control_instance.remaining_capacity - settings.AWX_CONTROL_NODE_TASK_IMPACT)
+                    control_instance.consume_capacity(settings.AWX_CONTROL_NODE_TASK_IMPACT)
                     task.log_lifecycle("controller_node_chosen")
-                    execution_instance.remaining_capacity = max(0, execution_instance.remaining_capacity - task.task_impact)
+                    execution_instance.consume_capacity(task.task_impact)
                     task.log_lifecycle("execution_node_chosen")
                     logger.debug(
                         "Starting {} in group {} instance {} (remaining_capacity={})".format(
-                            task.log_format, rampart_group.name, execution_instance.hostname, execution_instance.remaining_capacity
+                            task.log_format, instance_group.name, execution_instance.hostname, execution_instance.remaining_capacity
                         )
                     )
-                    execution_instance = self.real_instances[execution_instance.hostname]
+                    execution_instance = self.instances[execution_instance.hostname].obj
                     self.dependency_graph.add_job(task)
-                    self.start_task(task, rampart_group, task.get_jobs_fail_chain(), execution_instance)
+                    self.start_task(task, instance_group, task.get_jobs_fail_chain(), execution_instance)
                     found_acceptable_queue = True
                     break
                 else:
                     logger.debug(
                         "No instance available in group {} to run job {} w/ capacity requirement {}".format(
-                            rampart_group.name, task.log_format, task.task_impact
+                            instance_group.name, task.log_format, task.task_impact
                         )
                     )
             if not found_acceptable_queue:
@@ -593,15 +632,22 @@ class TaskManager:
 
     def process_tasks(self, all_sorted_tasks):
         running_tasks = [t for t in all_sorted_tasks if t.status in ['waiting', 'running']]
-
         self.process_running_tasks(running_tasks)
+        self.subsystem_metrics.inc("task_manager_running_processed", len(running_tasks))
 
         pending_tasks = [t for t in all_sorted_tasks if t.status == 'pending']
+
         undeped_tasks = [t for t in pending_tasks if not t.dependencies_processed]
         dependencies = self.generate_dependencies(undeped_tasks)
+        deps_of_deps = self.generate_dependencies(dependencies)
+        dependencies += deps_of_deps
         self.process_pending_tasks(dependencies)
-        self.process_pending_tasks(pending_tasks)
+        self.subsystem_metrics.inc("task_manager_pending_processed", len(dependencies))
 
+        self.process_pending_tasks(pending_tasks)
+        self.subsystem_metrics.inc("task_manager_pending_processed", len(pending_tasks))
+
+    @timeit
     def _schedule(self):
         finished_wfjs = []
         all_sorted_tasks = self.get_tasks()
@@ -637,6 +683,28 @@ class TaskManager:
             self.process_tasks(all_sorted_tasks)
         return finished_wfjs
 
+    def record_aggregate_metrics(self, *args):
+        if not settings.IS_TESTING():
+            # increment task_manager_schedule_calls regardless if the other
+            # metrics are recorded
+            s_metrics.Metrics(auto_pipe_execute=True).inc("task_manager_schedule_calls", 1)
+            # Only record metrics if the last time recording was more
+            # than SUBSYSTEM_METRICS_TASK_MANAGER_RECORD_INTERVAL ago.
+            # Prevents a short-duration task manager that runs directly after a
+            # long task manager to override useful metrics.
+            current_time = time.time()
+            time_last_recorded = current_time - self.subsystem_metrics.decode("task_manager_recorded_timestamp")
+            if time_last_recorded > settings.SUBSYSTEM_METRICS_TASK_MANAGER_RECORD_INTERVAL:
+                logger.debug(f"recording metrics, last recorded {time_last_recorded} seconds ago")
+                self.subsystem_metrics.set("task_manager_recorded_timestamp", current_time)
+                self.subsystem_metrics.pipe_execute()
+            else:
+                logger.debug(f"skipping recording metrics, last recorded {time_last_recorded} seconds ago")
+
+    def record_aggregate_metrics_and_exit(self, *args):
+        self.record_aggregate_metrics()
+        sys.exit(1)
+
     def schedule(self):
         # Lock
         with advisory_lock('task_manager_lock', wait=False) as acquired:
@@ -646,5 +714,8 @@ class TaskManager:
                     return
                 logger.debug("Starting Scheduler")
                 with task_manager_bulk_reschedule():
+                    # if sigterm due to timeout, still record metrics
+                    signal.signal(signal.SIGTERM, self.record_aggregate_metrics_and_exit)
                     self._schedule()
+                    self.record_aggregate_metrics()
                 logger.debug("Finishing Scheduler")

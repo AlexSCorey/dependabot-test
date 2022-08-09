@@ -105,7 +105,7 @@ options:
         - 5
     unified_job_template:
       description:
-        - Name of unified job template to schedule.
+        - Name of unified job template to schedule. Used to look up an already existing schedule.
       required: False
       type: str
     organization:
@@ -143,6 +143,27 @@ EXAMPLES = '''
     unified_job_template: "Demo Job Template"
     rrule: "{{ query('awx.awx.schedule_rrule', 'week', start_date='2019-12-19 13:05:51') }}"
   register: result
+
+- name: Build a complex schedule for every day except sunday using the rruleset plugin
+  schedule:
+    name: "{{ sched1 }}"
+    state: present
+    unified_job_template: "Demo Job Template"
+    rrule: "{{ query(awx.awx.schedule_rruleset, '2022-04-30 10:30:45', rules=rrules, timezone='UTC' ) }}"
+  vars:
+    rrules:
+      - frequency: 'day'
+        every: 1
+      - frequency: 'day'
+        every: 1
+        on_days: 'sunday'
+        include: False
+
+- name: Delete 'my_schedule' schedule for my_workflow
+  schedule:
+    name: "my_schedule"
+    state: absent
+    unified_job_template: my_workflow
 '''
 
 from ..module_utils.controller_api import ControllerAPIModule
@@ -199,14 +220,16 @@ def main():
     if inventory:
         inventory_id = module.resolve_name_to_id('inventories', inventory)
     search_fields = {}
+    sched_search_fields = {}
     if organization:
         search_fields['organization'] = module.resolve_name_to_id('organizations', organization)
     unified_job_template_id = None
     if unified_job_template:
         search_fields['name'] = unified_job_template
         unified_job_template_id = module.get_one('unified_job_templates', **{'data': search_fields})['id']
+        sched_search_fields['unified_job_template'] = unified_job_template_id
     # Attempt to look up an existing item based on the provided data
-    existing_item = module.get_one('schedules', name_or_id=name)
+    existing_item = module.get_one('schedules', name_or_id=name, **{'data': sched_search_fields})
 
     association_fields = {}
 
@@ -255,7 +278,8 @@ def main():
             new_fields,
             endpoint='schedules',
             item_type='schedule',
-            associations=association_fields,)
+            associations=association_fields,
+        )
 
 
 if __name__ == '__main__':

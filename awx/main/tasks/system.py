@@ -103,7 +103,8 @@ def dispatch_startup():
     #
     apply_cluster_membership_policies()
     cluster_node_heartbeat()
-    Metrics().clear_values()
+    m = Metrics()
+    m.reset_values()
 
     # Update Tower's rsyslog.conf file based on loggins settings in the db
     reconfigure_rsyslog()
@@ -113,10 +114,6 @@ def inform_cluster_of_shutdown():
     try:
         this_inst = Instance.objects.get(hostname=settings.CLUSTER_HOST_ID)
         this_inst.mark_offline(update_last_seen=True, errors=_('Instance received normal shutdown signal'))
-        try:
-            reaper.reap(this_inst)
-        except Exception:
-            logger.exception('failed to reap jobs for {}'.format(this_inst.hostname))
         logger.warning('Normal shutdown signal for instance {}, ' 'removed self from capacity pool.'.format(this_inst.hostname))
     except Exception:
         logger.exception('Encountered problem with normal shutdown signal.')
@@ -695,7 +692,7 @@ def handle_work_error(task_id, *args, **kwargs):
                 first_instance = instance
                 first_instance_type = each_task['type']
 
-            if instance.celery_task_id != task_id and not instance.cancel_flag and not instance.status == 'successful':
+            if instance.celery_task_id != task_id and not instance.cancel_flag and not instance.status in ('successful', 'failed'):
                 instance.status = 'failed'
                 instance.failed = True
                 if not instance.job_explanation:
@@ -714,25 +711,6 @@ def handle_work_error(task_id, *args, **kwargs):
     if first_instance:
         schedule_task_manager()
         pass
-
-
-@task(queue=get_local_queuename)
-def handle_success_and_failure_notifications(job_id):
-    uj = UnifiedJob.objects.get(pk=job_id)
-    retries = 0
-    while retries < settings.AWX_NOTIFICATION_JOB_FINISH_MAX_RETRY:
-        if uj.finished:
-            uj.send_notification_templates('succeeded' if uj.status == 'successful' else 'failed')
-            return
-        else:
-            # wait a few seconds to avoid a race where the
-            # events are persisted _before_ the UJ.status
-            # changes from running -> successful
-            retries += 1
-            time.sleep(1)
-            uj = UnifiedJob.objects.get(pk=job_id)
-
-    logger.warning(f"Failed to even try to send notifications for job '{uj}' due to job not being in finished state.")
 
 
 @task(queue=get_local_queuename)

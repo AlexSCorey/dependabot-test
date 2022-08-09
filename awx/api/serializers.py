@@ -29,7 +29,6 @@ from django.utils.translation import gettext_lazy as _
 from django.utils.encoding import force_str
 from django.utils.text import capfirst
 from django.utils.timezone import now
-from django.utils.functional import cached_property
 
 # Django REST Framework
 from rest_framework.exceptions import ValidationError, PermissionDenied
@@ -113,6 +112,7 @@ from awx.main.utils import (
 )
 from awx.main.utils.filters import SmartFilter
 from awx.main.utils.named_url_graph import reset_counters
+from awx.main.scheduler.task_manager_models import TaskManagerInstanceGroups, TaskManagerInstances
 from awx.main.redact import UriCleaner, REPLACE_STR
 
 from awx.main.validators import vars_validate_or_raise
@@ -1606,7 +1606,6 @@ class ProjectUpdateSerializer(UnifiedJobSerializer, ProjectOptionsSerializer):
 
 class ProjectUpdateDetailSerializer(ProjectUpdateSerializer):
 
-    host_status_counts = serializers.SerializerMethodField(help_text=_('A count of hosts uniquely assigned to each status.'))
     playbook_counts = serializers.SerializerMethodField(help_text=_('A count of all plays and tasks for the job run.'))
 
     class Meta:
@@ -1620,14 +1619,6 @@ class ProjectUpdateDetailSerializer(ProjectUpdateSerializer):
         data = {'play_count': play_count, 'task_count': task_count}
 
         return data
-
-    def get_host_status_counts(self, obj):
-        try:
-            counts = obj.project_update_events.only('event_data').get(event='playbook_on_stats').get_host_status_counts()
-        except ProjectUpdateEvent.DoesNotExist:
-            counts = {}
-
-        return counts
 
 
 class ProjectUpdateListSerializer(ProjectUpdateSerializer, UnifiedJobListSerializer):
@@ -2081,7 +2072,7 @@ class InventorySourceSerializer(UnifiedJobTemplateSerializer, InventorySourceOpt
 
     class Meta:
         model = InventorySource
-        fields = ('*', 'name', 'inventory', 'update_on_launch', 'update_cache_timeout', 'source_project', 'update_on_project_update') + (
+        fields = ('*', 'name', 'inventory', 'update_on_launch', 'update_cache_timeout', 'source_project') + (
             'last_update_failed',
             'last_updated',
         )  # Backwards compatibility.
@@ -2144,11 +2135,6 @@ class InventorySourceSerializer(UnifiedJobTemplateSerializer, InventorySourceOpt
             raise serializers.ValidationError(_("Cannot use manual project for SCM-based inventory."))
         return value
 
-    def validate_update_on_project_update(self, value):
-        if value and self.instance and self.instance.schedules.exists():
-            raise serializers.ValidationError(_("Setting not compatible with existing schedules."))
-        return value
-
     def validate_inventory(self, value):
         if value and value.kind == 'smart':
             raise serializers.ValidationError({"detail": _("Cannot create Inventory Source for Smart Inventory")})
@@ -2199,7 +2185,7 @@ class InventorySourceSerializer(UnifiedJobTemplateSerializer, InventorySourceOpt
             if ('source' in attrs or 'source_project' in attrs) and get_field_from_model_or_attrs('source_project') is None:
                 raise serializers.ValidationError({"source_project": _("Project required for scm type sources.")})
         else:
-            redundant_scm_fields = list(filter(lambda x: attrs.get(x, None), ['source_project', 'source_path', 'update_on_project_update']))
+            redundant_scm_fields = list(filter(lambda x: attrs.get(x, None), ['source_project', 'source_path']))
             if redundant_scm_fields:
                 raise serializers.ValidationError({"detail": _("Cannot set %s if not SCM type." % ' '.join(redundant_scm_fields))})
 
@@ -2244,7 +2230,6 @@ class InventoryUpdateSerializer(UnifiedJobSerializer, InventorySourceOptionsSeri
             'source_project_update',
             'custom_virtualenv',
             'instance_group',
-            '-controller_node',
         )
 
     def get_related(self, obj):
@@ -2319,7 +2304,6 @@ class InventoryUpdateDetailSerializer(InventoryUpdateSerializer):
 class InventoryUpdateListSerializer(InventoryUpdateSerializer, UnifiedJobListSerializer):
     class Meta:
         model = InventoryUpdate
-        fields = ('*', '-controller_node')  # field removal undone by UJ serializer
 
 
 class InventoryUpdateCancelSerializer(InventoryUpdateSerializer):
@@ -2671,6 +2655,13 @@ class CredentialSerializer(BaseSerializer):
                     )
 
         return credential_type
+
+    def validate_inputs(self, inputs):
+        if self.instance and self.instance.credential_type.kind == "vault":
+            if 'vault_id' in inputs and inputs['vault_id'] != self.instance.inputs['vault_id']:
+                raise ValidationError(_('Vault IDs cannot be changed once they have been created.'))
+
+        return inputs
 
 
 class CredentialSerializerCreate(CredentialSerializer):
@@ -3106,7 +3097,6 @@ class JobSerializer(UnifiedJobSerializer, JobOptionsSerializer):
 
 class JobDetailSerializer(JobSerializer):
 
-    host_status_counts = serializers.SerializerMethodField(help_text=_('A count of hosts uniquely assigned to each status.'))
     playbook_counts = serializers.SerializerMethodField(help_text=_('A count of all plays and tasks for the job run.'))
     custom_virtualenv = serializers.ReadOnlyField()
 
@@ -3121,14 +3111,6 @@ class JobDetailSerializer(JobSerializer):
         data = {'play_count': play_count, 'task_count': task_count}
 
         return data
-
-    def get_host_status_counts(self, obj):
-        try:
-            counts = obj.get_event_queryset().only('event_data').get(event='playbook_on_stats').get_host_status_counts()
-        except JobEvent.DoesNotExist:
-            counts = {}
-
-        return counts
 
 
 class JobCancelSerializer(BaseSerializer):
@@ -3318,20 +3300,9 @@ class AdHocCommandSerializer(UnifiedJobSerializer):
 
 
 class AdHocCommandDetailSerializer(AdHocCommandSerializer):
-
-    host_status_counts = serializers.SerializerMethodField(help_text=_('A count of hosts uniquely assigned to each status.'))
-
     class Meta:
         model = AdHocCommand
         fields = ('*', 'host_status_counts')
-
-    def get_host_status_counts(self, obj):
-        try:
-            counts = obj.ad_hoc_command_events.only('event_data').get(event='playbook_on_stats').get_host_status_counts()
-        except AdHocCommandEvent.DoesNotExist:
-            counts = {}
-
-        return counts
 
 
 class AdHocCommandCancelSerializer(AdHocCommandSerializer):
@@ -4501,7 +4472,10 @@ class NotificationTemplateSerializer(BaseSerializer):
                 body = messages[event].get('body', {})
                 if body:
                     try:
-                        potential_body = json.loads(body)
+                        rendered_body = (
+                            sandbox.ImmutableSandboxedEnvironment(undefined=DescriptiveUndefined).from_string(body).render(JobNotificationMixin.context_stub())
+                        )
+                        potential_body = json.loads(rendered_body)
                         if not isinstance(potential_body, dict):
                             error_list.append(
                                 _("Webhook body for '{}' should be a json dictionary. Found type '{}'.".format(event, type(potential_body).__name__))
@@ -4644,69 +4618,74 @@ class SchedulePreviewSerializer(BaseSerializer):
 
     # We reject rrules if:
     # - DTSTART is not include
-    # - INTERVAL is not included
-    # - SECONDLY is used
-    # - TZID is used
-    # - BYDAY prefixed with a number (MO is good but not 20MO)
-    # - BYYEARDAY
-    # - BYWEEKNO
-    # - Multiple DTSTART or RRULE elements
-    # - Can't contain both COUNT and UNTIL
-    # - COUNT > 999
+    # - Multiple DTSTART
+    # - At least one of RRULE is not included
+    # - EXDATE or RDATE is included
+    # For any rule in the ruleset:
+    #   - INTERVAL is not included
+    #   - SECONDLY is used
+    #   - BYDAY prefixed with a number (MO is good but not 20MO)
+    #   - Can't contain both COUNT and UNTIL
+    #   - COUNT > 999
     def validate_rrule(self, value):
         rrule_value = value
-        multi_by_month_day = r".*?BYMONTHDAY[\:\=][0-9]+,-*[0-9]+"
-        multi_by_month = r".*?BYMONTH[\:\=][0-9]+,[0-9]+"
         by_day_with_numeric_prefix = r".*?BYDAY[\:\=][0-9]+[a-zA-Z]{2}"
-        match_count = re.match(r".*?(COUNT\=[0-9]+)", rrule_value)
         match_multiple_dtstart = re.findall(r".*?(DTSTART(;[^:]+)?\:[0-9]+T[0-9]+Z?)", rrule_value)
         match_native_dtstart = re.findall(r".*?(DTSTART:[0-9]+T[0-9]+) ", rrule_value)
-        match_multiple_rrule = re.findall(r".*?(RRULE\:)", rrule_value)
+        match_multiple_rrule = re.findall(r".*?(RULE\:[^\s]*)", rrule_value)
+        errors = []
         if not len(match_multiple_dtstart):
-            raise serializers.ValidationError(_('Valid DTSTART required in rrule. Value should start with: DTSTART:YYYYMMDDTHHMMSSZ'))
+            errors.append(_('Valid DTSTART required in rrule. Value should start with: DTSTART:YYYYMMDDTHHMMSSZ'))
         if len(match_native_dtstart):
-            raise serializers.ValidationError(_('DTSTART cannot be a naive datetime.  Specify ;TZINFO= or YYYYMMDDTHHMMSSZZ.'))
+            errors.append(_('DTSTART cannot be a naive datetime.  Specify ;TZINFO= or YYYYMMDDTHHMMSSZZ.'))
         if len(match_multiple_dtstart) > 1:
-            raise serializers.ValidationError(_('Multiple DTSTART is not supported.'))
-        if not len(match_multiple_rrule):
-            raise serializers.ValidationError(_('RRULE required in rrule.'))
-        if len(match_multiple_rrule) > 1:
-            raise serializers.ValidationError(_('Multiple RRULE is not supported.'))
-        if 'interval' not in rrule_value.lower():
-            raise serializers.ValidationError(_('INTERVAL required in rrule.'))
-        if 'secondly' in rrule_value.lower():
-            raise serializers.ValidationError(_('SECONDLY is not supported.'))
-        if re.match(multi_by_month_day, rrule_value):
-            raise serializers.ValidationError(_('Multiple BYMONTHDAYs not supported.'))
-        if re.match(multi_by_month, rrule_value):
-            raise serializers.ValidationError(_('Multiple BYMONTHs not supported.'))
-        if re.match(by_day_with_numeric_prefix, rrule_value):
-            raise serializers.ValidationError(_("BYDAY with numeric prefix not supported."))
-        if 'byyearday' in rrule_value.lower():
-            raise serializers.ValidationError(_("BYYEARDAY not supported."))
-        if 'byweekno' in rrule_value.lower():
-            raise serializers.ValidationError(_("BYWEEKNO not supported."))
-        if 'COUNT' in rrule_value and 'UNTIL' in rrule_value:
-            raise serializers.ValidationError(_("RRULE may not contain both COUNT and UNTIL"))
-        if match_count:
-            count_val = match_count.groups()[0].strip().split("=")
-            if int(count_val[1]) > 999:
-                raise serializers.ValidationError(_("COUNT > 999 is unsupported."))
+            errors.append(_('Multiple DTSTART is not supported.'))
+        if "rrule:" not in rrule_value.lower():
+            errors.append(_('One or more rule required in rrule.'))
+        if "exdate:" in rrule_value.lower():
+            raise serializers.ValidationError(_('EXDATE not allowed in rrule.'))
+        if "rdate:" in rrule_value.lower():
+            raise serializers.ValidationError(_('RDATE not allowed in rrule.'))
+        for a_rule in match_multiple_rrule:
+            if 'interval' not in a_rule.lower():
+                errors.append("{0}: {1}".format(_('INTERVAL required in rrule'), a_rule))
+            elif 'secondly' in a_rule.lower():
+                errors.append("{0}: {1}".format(_('SECONDLY is not supported'), a_rule))
+            if re.match(by_day_with_numeric_prefix, a_rule):
+                errors.append("{0}: {1}".format(_("BYDAY with numeric prefix not supported"), a_rule))
+            if 'COUNT' in a_rule and 'UNTIL' in a_rule:
+                errors.append("{0}: {1}".format(_("RRULE may not contain both COUNT and UNTIL"), a_rule))
+            match_count = re.match(r".*?(COUNT\=[0-9]+)", a_rule)
+            if match_count:
+                count_val = match_count.groups()[0].strip().split("=")
+                if int(count_val[1]) > 999:
+                    errors.append("{0}: {1}".format(_("COUNT > 999 is unsupported"), a_rule))
+
         try:
             Schedule.rrulestr(rrule_value)
         except Exception as e:
             import traceback
 
             logger.error(traceback.format_exc())
-            raise serializers.ValidationError(_("rrule parsing failed validation: {}").format(e))
+            errors.append(_("rrule parsing failed validation: {}").format(e))
+
+        if errors:
+            raise serializers.ValidationError(errors)
+
         return value
 
 
 class ScheduleSerializer(LaunchConfigurationBaseSerializer, SchedulePreviewSerializer):
     show_capabilities = ['edit', 'delete']
 
-    timezone = serializers.SerializerMethodField()
-    until = serializers.SerializerMethodField()
+    timezone = serializers.SerializerMethodField(
+        help_text=_(
+            'The timezone this schedule runs in. This field is extracted from the RRULE. If the timezone in the RRULE is a link to another timezone, the link will be reflected in this field.'
+        ),
+    )
+    until = serializers.SerializerMethodField(
+        help_text=_('The date this schedule will end. This field is computed from the RRULE. If the schedule does not end an emptry string will be returned'),
+    )
 
     class Meta:
         model = Schedule
@@ -4760,13 +4739,6 @@ class ScheduleSerializer(LaunchConfigurationBaseSerializer, SchedulePreviewSeria
             raise serializers.ValidationError(_('Inventory Source must be a cloud resource.'))
         elif type(value) == Project and value.scm_type == '':
             raise serializers.ValidationError(_('Manual Project cannot have a schedule set.'))
-        elif type(value) == InventorySource and value.source == 'scm' and value.update_on_project_update:
-            raise serializers.ValidationError(
-                _(
-                    'Inventory sources with `update_on_project_update` cannot be scheduled. '
-                    'Schedule its source project `{}` instead.'.format(value.source_project.name)
-                )
-            )
         return value
 
     def validate(self, attrs):
@@ -4873,7 +4845,6 @@ class InstanceGroupSerializer(BaseSerializer):
 
     show_capabilities = ['edit', 'delete']
 
-    committed_capacity = serializers.SerializerMethodField(help_text=_('This resource has been deprecated and will be removed in a future release'))
     consumed_capacity = serializers.SerializerMethodField()
     percent_capacity_remaining = serializers.SerializerMethodField()
     jobs_running = serializers.IntegerField(
@@ -4922,7 +4893,6 @@ class InstanceGroupSerializer(BaseSerializer):
             "created",
             "modified",
             "capacity",
-            "committed_capacity",
             "consumed_capacity",
             "percent_capacity_remaining",
             "jobs_running",
@@ -5003,30 +4973,29 @@ class InstanceGroupSerializer(BaseSerializer):
 
         return attrs
 
-    def get_capacity_dict(self):
+    def get_ig_mgr(self):
         # Store capacity values (globally computed) in the context
-        if 'capacity_map' not in self.context:
-            ig_qs = None
+        if 'task_manager_igs' not in self.context:
+            instance_groups_queryset = None
             jobs_qs = UnifiedJob.objects.filter(status__in=('running', 'waiting'))
             if self.parent:  # Is ListView:
-                ig_qs = self.parent.instance
-            self.context['capacity_map'] = InstanceGroup.objects.capacity_values(qs=ig_qs, tasks=jobs_qs, breakdown=True)
-        return self.context['capacity_map']
+                instance_groups_queryset = self.parent.instance
+
+            instances = TaskManagerInstances(jobs_qs)
+            instance_groups = TaskManagerInstanceGroups(instances_by_hostname=instances, instance_groups_queryset=instance_groups_queryset)
+
+            self.context['task_manager_igs'] = instance_groups
+        return self.context['task_manager_igs']
 
     def get_consumed_capacity(self, obj):
-        return self.get_capacity_dict()[obj.name]['running_capacity']
-
-    def get_committed_capacity(self, obj):
-        return self.get_capacity_dict()[obj.name]['committed_capacity']
+        ig_mgr = self.get_ig_mgr()
+        return ig_mgr.get_consumed_capacity(obj.name)
 
     def get_percent_capacity_remaining(self, obj):
         if not obj.capacity:
             return 0.0
-        consumed = self.get_consumed_capacity(obj)
-        if consumed >= obj.capacity:
-            return 0.0
-        else:
-            return float("{0:.2f}".format(((float(obj.capacity) - float(consumed)) / (float(obj.capacity))) * 100))
+        ig_mgr = self.get_ig_mgr()
+        return float("{0:.2f}".format((float(ig_mgr.get_remaining_capacity(obj.name)) / (float(obj.capacity))) * 100))
 
     def get_instances(self, obj):
         return obj.instances.count()
@@ -5038,8 +5007,7 @@ class ActivityStreamSerializer(BaseSerializer):
     object_association = serializers.SerializerMethodField(help_text=_("When present, shows the field name of the role or relationship that changed."))
     object_type = serializers.SerializerMethodField(help_text=_("When present, shows the model on which the role or relationship was defined."))
 
-    @cached_property
-    def _local_summarizable_fk_fields(self):
+    def _local_summarizable_fk_fields(self, obj):
         summary_dict = copy.copy(SUMMARIZABLE_FK_FIELDS)
         # Special requests
         summary_dict['group'] = summary_dict['group'] + ('inventory_id',)
@@ -5059,7 +5027,13 @@ class ActivityStreamSerializer(BaseSerializer):
             ('workflow_approval', ('id', 'name', 'unified_job_id')),
             ('instance', ('id', 'hostname')),
         ]
-        return field_list
+        # Optimization - do not attempt to summarize all fields, pair down to only relations that exist
+        if not obj:
+            return field_list
+        existing_association_types = [obj.object1, obj.object2]
+        if 'user' in existing_association_types:
+            existing_association_types.append('role')
+        return [entry for entry in field_list if entry[0] in existing_association_types]
 
     class Meta:
         model = ActivityStream
@@ -5143,7 +5117,7 @@ class ActivityStreamSerializer(BaseSerializer):
         data = {}
         if obj.actor is not None:
             data['actor'] = self.reverse('api:user_detail', kwargs={'pk': obj.actor.pk})
-        for fk, __ in self._local_summarizable_fk_fields:
+        for fk, __ in self._local_summarizable_fk_fields(obj):
             if not hasattr(obj, fk):
                 continue
             m2m_list = self._get_related_objects(obj, fk)
@@ -5200,7 +5174,7 @@ class ActivityStreamSerializer(BaseSerializer):
 
     def get_summary_fields(self, obj):
         summary_fields = OrderedDict()
-        for fk, related_fields in self._local_summarizable_fk_fields:
+        for fk, related_fields in self._local_summarizable_fk_fields(obj):
             try:
                 if not hasattr(obj, fk):
                     continue

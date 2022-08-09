@@ -53,14 +53,7 @@ const Wrapper = styled.div`
 `;
 
 const replaceIdentifier = (node) => {
-  if (stringIsUUID(node.originalNodeObject.identifier) && node.identifier) {
-    return true;
-  }
-
-  if (
-    !stringIsUUID(node.originalNodeObject.identifier) &&
-    node.identifier !== node.originalNodeObject.identifier
-  ) {
+  if (stringIsUUID(node.originalNodeObject.identifier) || node.identifier) {
     return true;
   }
 
@@ -297,7 +290,11 @@ function Visualizer({ template }) {
     }
   }, [links, nodes]);
 
-  const { error: saveVisualizerError, request: saveVisualizer } = useRequest(
+  const {
+    error: saveVisualizerError,
+    isLoading: isSavingVisualizer,
+    request: saveVisualizer,
+  } = useRequest(
     useCallback(async () => {
       const nodeRequests = [];
       const approvalTemplateRequests = [];
@@ -435,7 +432,7 @@ function Visualizer({ template }) {
           ) {
             if (
               node.originalNodeObject.summary_fields.unified_job_template
-                .unified_job_type === 'workflow_approval'
+                ?.unified_job_type === 'workflow_approval'
             ) {
               nodeRequests.push(
                 WorkflowJobTemplateNodesAPI.replace(
@@ -553,7 +550,7 @@ function Visualizer({ template }) {
   const { error: nodeRequestError, dismissError: dismissNodeRequestError } =
     useDismissableError(saveVisualizerError);
 
-  if (isLoading) {
+  if (isLoading || isSavingVisualizer) {
     return (
       <CenteredContent>
         <ContentLoading />

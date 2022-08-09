@@ -130,8 +130,7 @@ class JobOptions(BaseModel):
             )
         )
     )
-    job_tags = models.CharField(
-        max_length=1024,
+    job_tags = models.TextField(
         blank=True,
         default='',
     )
@@ -743,6 +742,12 @@ class Job(UnifiedJob, JobOptions, SurveyJobMixin, JobNotificationMixin, TaskMana
         if artifacts.get('_ansible_no_log', False):
             return "$hidden due to Ansible no_log flag$"
         return artifacts
+
+    def get_effective_artifacts(self, **kwargs):
+        """Return unified job artifacts (from set_stats) to pass downstream in workflows"""
+        if isinstance(self.artifacts, dict):
+            return self.artifacts
+        return {}
 
     @property
     def is_container_group_task(self):

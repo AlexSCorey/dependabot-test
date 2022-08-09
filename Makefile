@@ -5,8 +5,8 @@ NPM_BIN ?= npm
 CHROMIUM_BIN=/tmp/chrome-linux/chrome
 GIT_BRANCH ?= $(shell git rev-parse --abbrev-ref HEAD)
 MANAGEMENT_COMMAND ?= awx-manage
-VERSION := $(shell $(PYTHON) setup.py --version)
-COLLECTION_VERSION := $(shell $(PYTHON) setup.py --version | cut -d . -f 1-3)
+VERSION := $(shell $(PYTHON) tools/scripts/scm_version.py)
+COLLECTION_VERSION := $(shell $(PYTHON) tools/scripts/scm_version.py | cut -d . -f 1-3)
 
 # NOTE: This defaults the container image version to the branch that's active
 COMPOSE_TAG ?= $(GIT_BRANCH)
@@ -15,6 +15,12 @@ MAIN_NODE_TYPE ?= hybrid
 KEYCLOAK ?= false
 # If set to true docker-compose will also start an ldap instance
 LDAP ?= false
+# If set to true docker-compose will also start a splunk instance
+SPLUNK ?= false
+# If set to true docker-compose will also start a prometheus instance
+PROMETHEUS ?= false
+# If set to true docker-compose will also start a grafana instance
+GRAFANA ?= false
 
 VENV_BASE ?= /var/lib/awx/venv
 
@@ -43,7 +49,7 @@ I18N_FLAG_FILE = .i18n_built
 .PHONY: awx-link clean clean-tmp clean-venv requirements requirements_dev \
 	develop refresh adduser migrate dbchange \
 	receiver test test_unit test_coverage coverage_html \
-	dev_build release_build sdist \
+	sdist \
 	ui-release ui-devel \
 	VERSION PYTHON_VERSION docker-compose-sources \
 	.git/hooks/pre-commit
@@ -198,7 +204,7 @@ uwsgi: collectstatic
 	    --logformat "%(addr) %(method) %(uri) - %(proto) %(status)"
 
 awx-autoreload:
-	@/awx_devel/tools/docker-compose/awx-autoreload /awx_devel "$(DEV_RELOAD_COMMAND)"
+	@/awx_devel/tools/docker-compose/awx-autoreload /awx_devel/awx "$(DEV_RELOAD_COMMAND)"
 
 daphne:
 	@if [ "$(VENV_BASE)" ]; then \
@@ -267,7 +273,7 @@ api-lint:
 	yamllint -s .
 
 awx-link:
-	[ -d "/awx_devel/awx.egg-info" ] || $(PYTHON) /awx_devel/setup.py egg_info_dev
+	[ -d "/awx_devel/awx.egg-info" ] || $(PYTHON) /awx_devel/tools/scripts/egg_info_dev
 	cp -f /tmp/awx.egg-link /var/lib/awx/venv/awx/lib/$(PYTHON)/site-packages/awx.egg-link
 
 TEST_DIRS ?= awx/main/tests/unit awx/main/tests/functional awx/conf/tests awx/sso/tests
@@ -286,6 +292,7 @@ COLLECTION_TEST_TARGET ?=
 COLLECTION_PACKAGE ?= awx
 COLLECTION_NAMESPACE ?= awx
 COLLECTION_INSTALL = ~/.ansible/collections/ansible_collections/$(COLLECTION_NAMESPACE)/$(COLLECTION_PACKAGE)
+COLLECTION_TEMPLATE_VERSION ?= false
 
 test_collection:
 	rm -f $(shell ls -d $(VENV_BASE)/awx/lib/python* | head -n 1)/no-global-site-packages.txt
@@ -313,7 +320,7 @@ awx_collection_build: $(shell find awx_collection -type f)
 	  -e collection_package=$(COLLECTION_PACKAGE) \
 	  -e collection_namespace=$(COLLECTION_NAMESPACE) \
 	  -e collection_version=$(COLLECTION_VERSION) \
-	  -e '{"awx_template_version":false}'
+	  -e '{"awx_template_version": $(COLLECTION_TEMPLATE_VERSION)}'
 	ansible-galaxy collection build awx_collection_build --force --output-path=awx_collection_build
 
 build_collection: awx_collection_build
@@ -417,21 +424,13 @@ ui-test-general:
 	$(NPM_BIN) run --prefix awx/ui pretest
 	$(NPM_BIN) run --prefix awx/ui/ test-general --runInBand
 
-# Build a pip-installable package into dist/ with a timestamped version number.
-dev_build:
-	$(PYTHON) setup.py dev_build
-
-# Build a pip-installable package into dist/ with the release version number.
-release_build:
-	$(PYTHON) setup.py release_build
-
 HEADLESS ?= no
 ifeq ($(HEADLESS), yes)
 dist/$(SDIST_TAR_FILE):
 else
 dist/$(SDIST_TAR_FILE): $(UI_BUILD_FLAG_FILE)
 endif
-	$(PYTHON) setup.py $(SDIST_COMMAND)
+	$(PYTHON) -m build -s
 	ln -sf $(SDIST_TAR_FILE) dist/awx.tar.gz
 
 sdist: dist/$(SDIST_TAR_FILE)
@@ -466,7 +465,10 @@ docker-compose-sources: .git/hooks/pre-commit
 	    -e execution_node_count=$(EXECUTION_NODE_COUNT) \
 	    -e minikube_container_group=$(MINIKUBE_CONTAINER_GROUP) \
 	    -e enable_keycloak=$(KEYCLOAK) \
-	    -e enable_ldap=$(LDAP)
+	    -e enable_ldap=$(LDAP) \
+	    -e enable_splunk=$(SPLUNK) \
+	    -e enable_prometheus=$(PROMETHEUS) \
+	    -e enable_grafana=$(GRAFANA)
 
 
 docker-compose: awx/projects docker-compose-sources
@@ -514,7 +516,7 @@ docker-clean:
 	fi
 
 docker-clean-volumes: docker-compose-clean docker-compose-container-group-clean
-	docker volume rm tools_awx_db
+	docker volume rm -f tools_awx_db tools_grafana_storage tools_prometheus_storage $(docker volume ls --filter name=tools_redis_socket_ -q)
 
 docker-refresh: docker-clean docker-compose
 
@@ -524,9 +526,6 @@ docker-compose-elk: awx/projects docker-compose-sources
 
 docker-compose-cluster-elk: awx/projects docker-compose-sources
 	docker-compose -f tools/docker-compose/_sources/docker-compose.yml -f tools/elastic/docker-compose.logstash-link-cluster.yml -f tools/elastic/docker-compose.elastic-override.yml up --no-recreate
-
-prometheus:
-	docker run -u0 --net=tools_default --link=`docker ps | egrep -o "tools_awx(_run)?_([^ ]+)?"`:awxweb --volume `pwd`/tools/prometheus:/prometheus --name prometheus -d -p 0.0.0.0:9090:9090 prom/prometheus --web.enable-lifecycle --config.file=/prometheus/prometheus.yml
 
 docker-compose-container-group:
 	MINIKUBE_CONTAINER_GROUP=true make docker-compose

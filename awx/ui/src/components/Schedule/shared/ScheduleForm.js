@@ -11,13 +11,16 @@ import {
   FormGroup,
   Title,
   ActionGroup,
+  // To be removed once UI completes complex schedules
+  Alert,
 } from '@patternfly/react-core';
-import { Config } from 'contexts/Config';
+import { Config, useConfig } from 'contexts/Config';
 import { SchedulesAPI } from 'api';
 import { dateToInputDateTime } from 'util/dates';
 import useRequest from 'hooks/useRequest';
 import { required } from 'util/validators';
 import { parseVariableField } from 'util/yaml';
+import Popover from '../../Popover';
 import AnsibleSelect from '../../AnsibleSelect';
 import ContentError from '../../ContentError';
 import ContentLoading from '../../ContentLoading';
@@ -31,6 +34,7 @@ import FrequencyDetailSubform from './FrequencyDetailSubform';
 import SchedulePromptableFields from './SchedulePromptableFields';
 import DateTimePicker from './DateTimePicker';
 import buildRuleObj from './buildRuleObj';
+import helpText from '../../../screens/Template/shared/JobTemplate.helptext';
 
 const NUM_DAYS_PER_FREQUENCY = {
   week: 7,
@@ -87,7 +91,7 @@ const generateRunOnTheDay = (days = []) => {
   return null;
 };
 
-function ScheduleFormFields({ hasDaysToKeepField, zoneOptions }) {
+function ScheduleFormFields({ hasDaysToKeepField, zoneOptions, zoneLinks }) {
   const [timezone, timezoneMeta] = useField({
     name: 'timezone',
     validate: required(t`Select a value for this field`),
@@ -98,6 +102,27 @@ function ScheduleFormFields({ hasDaysToKeepField, zoneOptions }) {
   });
   const [{ name: dateFieldName }] = useField('startDate');
   const [{ name: timeFieldName }] = useField('startTime');
+  const [timezoneMessage, setTimezoneMessage] = useState('');
+  const warnLinkedTZ = (event, selectedValue) => {
+    if (zoneLinks[selectedValue]) {
+      setTimezoneMessage(
+        `Warning: ${selectedValue} is a link to ${zoneLinks[selectedValue]} and will be saved as that.`
+      );
+    } else {
+      setTimezoneMessage('');
+    }
+    timezone.onChange(event, selectedValue);
+  };
+
+  let timezoneValidatedStatus = 'default';
+  if (timezoneMeta.touched && timezoneMeta.error) {
+    timezoneValidatedStatus = 'error';
+  } else if (timezoneMessage) {
+    timezoneValidatedStatus = 'warning';
+  }
+
+  const config = useConfig();
+
   return (
     <>
       <FormField
@@ -122,17 +147,18 @@ function ScheduleFormFields({ hasDaysToKeepField, zoneOptions }) {
       <FormGroup
         name="timezone"
         fieldId="schedule-timezone"
-        helperTextInvalid={timezoneMeta.error}
+        helperTextInvalid={timezoneMeta.error || timezoneMessage}
         isRequired
-        validated={
-          !timezoneMeta.touched || !timezoneMeta.error ? 'default' : 'error'
-        }
+        validated={timezoneValidatedStatus}
         label={t`Local time zone`}
+        helperText={timezoneMessage}
+        labelIcon={<Popover content={helpText.localTimeZone(config)} />}
       >
         <AnsibleSelect
           id="schedule-timezone"
           data={zoneOptions}
           {...timezone}
+          onChange={warnLinkedTZ}
         />
       </FormGroup>
       <FormGroup
@@ -210,7 +236,7 @@ function ScheduleForm({
     request: loadScheduleData,
     error: contentError,
     isLoading: contentLoading,
-    result: { zoneOptions, credentials },
+    result: { zoneOptions, zoneLinks, credentials },
   } = useRequest(
     useCallback(async () => {
       const { data } = await SchedulesAPI.readZoneInfo();
@@ -223,19 +249,21 @@ function ScheduleForm({
         creds = results;
       }
 
-      const zones = data.map((zone) => ({
-        value: zone.name,
-        key: zone.name,
-        label: zone.name,
+      const zones = (data.zones || []).map((zone) => ({
+        value: zone,
+        key: zone,
+        label: zone,
       }));
 
       return {
         zoneOptions: zones,
+        zoneLinks: data.links,
         credentials: creds || [],
       };
     }, [schedule]),
     {
       zonesOptions: [],
+      zoneLinks: {},
       credentials: [],
       isLoading: true,
     }
@@ -376,6 +404,8 @@ function ScheduleForm({
       launchConfig.ask_limit_on_launch ||
       launchConfig.ask_credential_on_launch ||
       launchConfig.ask_scm_branch_on_launch ||
+      launchConfig.ask_tags_on_launch ||
+      launchConfig.ask_skip_tags_on_launch ||
       launchConfig.survey_enabled ||
       launchConfig.inventory_needed_to_start ||
       launchConfig.variables_needed_to_start?.length > 0)
@@ -439,6 +469,34 @@ function ScheduleForm({
 
   if (Object.keys(schedule).length > 0) {
     if (schedule.rrule) {
+      if (schedule.rrule.split(/\s+/).length > 2) {
+        return (
+          <Form autoComplete="off">
+            <Alert
+              variant="danger"
+              isInline
+              ouiaId="form-submit-error-alert"
+              title={t`Complex schedules are not supported in the UI yet, please use the API to manage this schedule.`}
+            />
+            <b>{t`Schedule Rules`}:</b>
+            <pre css="white-space: pre; font-family: var(--pf-global--FontFamily--monospace)">
+              {schedule.rrule}
+            </pre>
+            <ActionGroup>
+              <Button
+                ouiaId="schedule-form-cancel-button"
+                aria-label={t`Cancel`}
+                variant="secondary"
+                type="button"
+                onClick={handleCancel}
+              >
+                {t`Cancel`}
+              </Button>
+            </ActionGroup>
+          </Form>
+        );
+      }
+
       try {
         const {
           origOptions: {
@@ -598,6 +656,7 @@ function ScheduleForm({
                 <ScheduleFormFields
                   hasDaysToKeepField={hasDaysToKeepField}
                   zoneOptions={zoneOptions}
+                  zoneLinks={zoneLinks}
                 />
                 {isWizardOpen && (
                   <SchedulePromptableFields

@@ -24,10 +24,10 @@ jobs:
       - name: Checkout branch
         uses: actions/checkout@v3
 
-      - name: Read Labels (event)
+      - name: Read Event (event)
         run: echo '${{ toJSON(github.event.labels) }}'
 
-      - name: Read Labels (event)
+      - name: Read Labels (labels)
         run: echo '${{ toJSON(github.labels) }}'
 
       - name: Write PR labels to a file

@@ -1,0 +1,160 @@
+name: "Combine PRs"
+
+# Controls when the action will run - in this case triggered manually
+on:
+  workflow_dispatch:
+    inputs:
+      branchPrefix:
+        description: "Branch prefix to find combinable PRs based on"
+        required: true
+        default: "dependabot"
+  pull_request:
+    types:
+      - opened
+    branches: -'dependabot/**'
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # outputs:
+  #   fetch-branch-names: ${{steps.fetch-branch-names.outputs.values}}
+
+  # pull_request_target:
+  #   - type:
+  #       - opened
+  #   - branches:
+  #       - "dependabot/**"
+
+  # Steps represent a sequence of tasks that will be executed as part of the job
+  Component_types:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        search_labels: ["ui", "api"]
+    steps:
+      - name: Fetch Dependency Branches
+        id: fetch-dependency-branches
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          script: |
+            let pulls
+            if("${{matrix.search_labels}}" == "ui")
+            pulls = await github.rest.search.issuesAndPullRequests({
+              q:"dependabot+repo:AlexSCorey/dependabot-test+is:pr+is:open+label:component:ui+label:dependencies"
+            });
+
+            if("${{matrix.search_labels}}" === "api")
+            pulls = await github.rest.search.issuesAndPullRequests({
+              q:"dependabot+repo:AlexSCorey/dependabot-test+is:pr+is:open+label:component:api+label:dependencies"
+            });
+
+            return pulls.data.items
+      - name: Combine Dependency Branches
+        id: combine-dependency-branches
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          script: |
+            branches = []
+            let base_branch
+            for(const pull of ${{ steps.fetch-dependency-branches.outputs.result}}){
+              const pr = await github.request("GET /repos/AlexSCorey/dependabot-test/pulls/{id}",{id:pull.number})
+              branches.push(pr.data['head']['ref'])
+            base_branch = pr.data['base']['ref']
+            }
+            core.setOutput('base-branch', base_branch);
+            joinedBranches = branches.join(" ")
+            return joinedBranches
+      - name: Join Dependency Pr Titles
+        id: join-dependency-pr-titles
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          script: |
+            prs = []
+            for(const pull of ${{ steps.fetch-dependency-branches.outputs.result}}){
+              const response = await github.request("GET /repos/AlexSCorey/dependabot-test/pulls/{id}",{id:pull.number})
+              console.log(response, 'response for pr sttring')
+              prs.push('#' + response.data['number'] + ' ' + response.data['title']);
+            }
+            return prs
+      - name: Declare Combined Branch Name
+        id: declare-combined-branch-name
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          script: |
+            branchName = 'UIDependencyBumpCreatedbyDependbot'
+            if ("${{ matrix.search_labels }}" == "api"){
+                branchName = 'ApiDependencyBumpCreatedByDependabot'
+              }
+            return branchName
+      - name: Create Labels for new PR
+        id: create-labels-for-new-pr
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          script: |
+            label = 'label:component:ui+label:dependencies'
+            if ("${{ matrix.search_labels }}" == "api"){
+                label = 'label:component:api+label:dependencies'
+              }
+            return label
+
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - name: Check out repo
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      # Creates a branch with other PR branches merged together
+      - name: Created combined branch
+        continue-on-error: true
+        env:
+          BASE_BRANCH: ${{ steps.combine-dependency-branches.outputs.base-branch }}
+          BRANCHES_TO_COMBINE: "${{ steps.combine-dependency-branches.outputs.result }}"
+          COMBINED_BRANCH_NAME: ${{ steps.declare-combined-branch-name.outputs.result}}
+        run: |
+          sourcebranches="${BRANCHES_TO_COMBINE%\"}"
+          sourcebranches="${sourcebranches#\"}"
+
+          basebranch="${BASE_BRANCH%\"}"
+          basebranch="${basebranch#\"}"
+          headBranch="${COMBINED_BRANCH_NAME%\"}"
+          headBranch="${headBranch#\"}"
+
+          git config pull.rebase false
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+
+          git branch $headBranch $basebranch
+          git checkout $headBranch
+          git pull origin $sourcebranches --no-edit
+          git push origin $headBranch
+
+      - name: Create Combined Pull Request
+        continue-on-error: true
+        uses: actions/github-script@v3
+        env:
+          PR_STRINGS: ${{ steps.join-dependency-pr-titles.outputs.result }}
+          COMBINED_BRANCH_NAME: ${{ steps.declare-combined-branch-name.outputs.result }}
+        with:
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          script: |
+            const prString = process.env.PR_STRINGS;
+            const body = 'This PR was created by the Combine PRs action by combining the following PRs:\n' + prString;
+            await github.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: 'Combined PR',
+              head: ${{ env.COMBINED_BRANCH_NAME }},
+              base: "${{ steps.combine-dependency-branches.outputs.base-branch }}",
+              body: body,
+            });
+
+      # labels: ${{ steps.create-labels-for-new-pr.outputs.result }}
+      # - name: Close PRs that were combined
+      #   run: |
+      #     for (const pr of '${{ steps.fetch-branch-names.outputs.prs}}') {
+      #       console.log(pr)

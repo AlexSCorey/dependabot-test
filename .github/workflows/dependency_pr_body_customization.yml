@@ -21,14 +21,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Get PR labels
-        run: echo {{pr.labels}}
-
       - name: Checkout branch
         uses: actions/checkout@v3
 
       - name: Run tests
-        uses: mathiasvr/command-output@v1
         id: tests
         run: echo "::set-output name=pr_labels::$(pr.labels)\n"
 

@@ -50,5 +50,6 @@ jobs:
             GITHUB_TOKEN: ${{secrets.CUTOM_PR_BODY}}
             OWNER: ${{ github.repository_owner }}
             REPO: ${{ github.event.repository.name }}
+            BRANCH: ${{github.event.pull_request.head.ref}}
         run:  gh pr edit --body "Bug, Docs Fix or other nominal change"
 

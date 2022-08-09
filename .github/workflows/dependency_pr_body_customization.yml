@@ -16,7 +16,7 @@ jobs:
 
       - name: Update PR Body
         env:
-            GITHUB_TOKEN: ${{secrets.CUTOM_PR_BODY}}
+            GITHUB_TOKEN: ${{secrets.GIHUB_TOKEN}}
             OWNER: ${{ github.repository_owner }}
             REPO: ${{ github.event.repository.name }}
             BRANCH: ${{github.event.pull_request.head.ref}}

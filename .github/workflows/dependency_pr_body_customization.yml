@@ -13,6 +13,9 @@ jobs:
       - name: Checkout branch
         uses: actions/checkout@v3
 
+      - name: PRR Object
+        run: echo '${{ toJSON(github.event.pull_request) }}'
+
       - name: Read Event (event)
         run: echo '${{ toJSON(github.event.pull_request.labels.*.name) }}'
 

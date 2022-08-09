@@ -6,7 +6,7 @@ on:
 jobs:
   pr-check:
     name: Scan PR description for semantic versioning keywords
-    if:  contains(github.event.pull_request.labels.*.name, 'dependencies') && !contains(github.event.pull_request.labels.*.name, 'component:ui')
+    if:  contains(github.event.pull_request.labels.*.name, 'dependencies') && contains(github.event.pull_request.labels.*.name, 'component:ui')
     runs-on: ubuntu-latest
 
     steps:

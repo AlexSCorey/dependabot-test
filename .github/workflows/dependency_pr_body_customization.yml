@@ -42,15 +42,6 @@ jobs:
       #     grep "component:ui" pr.labels > Y
       #     exit 0
       #   shell: bash {0}
-      # - name: Check for exactly 2 labels
-      #   env:
-      #       GITHUB_TOKEN: ${{secrets.CUSTOM_PR_BODY}}
-      #       OWNER: ${{ github.repository_owner }}
-      #       REPO: ${{ github.event.repository.name }}
-      #   run: |
-      #     if [ $(cat X Y | wc -l) == 1 ] ; then
-      #       gh pr edit --body "Bug, Docs Fix or other nominal change"
-      #       exit 0;
-      #     else
-      #       exit 255;
-      #     fi
+      - name: Check for exactly 2 labels
+        run:  gh pr edit --body "Bug, Docs Fix or other nominal change"
+

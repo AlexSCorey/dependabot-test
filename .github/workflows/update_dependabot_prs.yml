@@ -23,4 +23,4 @@ jobs:
             PR: ${{github.event.pull_request.body}}
         run: |
           gh pr checkout ${{ env.BRANCH }}
-          echo ${{env.PR}}
+          echo "${{env.PR}} Alex is an awesome coder"

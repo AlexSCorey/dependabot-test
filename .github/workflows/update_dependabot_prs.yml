@@ -20,8 +20,7 @@ jobs:
             OWNER: ${{ github.repository_owner }}
             REPO: ${{ github.event.repository.name }}
             BRANCH: ${{github.event.pull_request.head.ref}}
-            BODY: ${{ github.event.pull_request.body }}
         run: |
           gh pr checkout ${{ env.BRANCH }}
-          echo '${{env.BODY}} Alex is a champion coder'
+          echo '${{env.BRANCH}} Alex is a champion coder'
           gh pr edit --body "${{ body }}"

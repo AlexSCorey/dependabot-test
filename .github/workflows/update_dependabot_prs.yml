@@ -21,6 +21,6 @@ jobs:
             REPO: ${{ github.event.repository.name }}
             BRANCH: ${{github.event.pull_request.head.ref}}
             PR: ${{github.event.pull_request.body}}
-        run: |
+        run: |    
           gh pr checkout ${{ env.BRANCH }}
-          echo "${{env.PR}} Alex is an awesome coder"
+          gh pr edit --body "${{ env.PR }} Bug, Docs Fix or other nominal change"

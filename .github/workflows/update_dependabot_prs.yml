@@ -23,4 +23,3 @@ jobs:
         run: |
           gh pr checkout ${{ env.BRANCH }}
           echo '${{env.BRANCH}}'
-          # gh pr edit --body "${{ body }}"

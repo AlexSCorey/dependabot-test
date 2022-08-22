@@ -20,7 +20,7 @@ jobs:
             OWNER: ${{ github.repository_owner }}
             REPO: ${{ github.event.repository.name }}
             BRANCH: ${{github.event.pull_request.head.ref}}
-            PR: ${{github.event.pull_request}}
+            PR: ${{github.event.pull_request.body}}
         run: |
           gh pr checkout ${{ env.BRANCH }}
           echo ${{env.PR}}

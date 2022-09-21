@@ -21,7 +21,7 @@ jobs:
             REPO: ${{ github.event.repository.name }}
 #             BRANCH: ${{github.event.pull_request.head.ref}}
             PR: ${{github.event.pull_request.number}}
-            PR_BODY: ${{github.event.pull_request.body
+            PR_BODY: ${{github.event.pull_request.body}}
         run: |
           gh pr checkout ${{ env.PR }}
           gh pr edit ${{env.PR}} --body "${{ env.PR_BODY }}\nBug, Docs Fix or other nominal change"

@@ -19,8 +19,9 @@ jobs:
             GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
             OWNER: ${{ github.repository_owner }}
             REPO: ${{ github.event.repository.name }}
-            BRANCH: ${{github.event.pull_request.head.ref}}
-            PR: ${{github.event.pull_request.id}}
+#             BRANCH: ${{github.event.pull_request.head.ref}}
+            PR: ${{github.event.pull_request.number}}
+            PR_BODY: ${{github.event.pull_request.body
         run: |
-          gh pr checkout ${{ env.BRANCH }}
-          gh pr edit --body "${{ env.PR }}\nBug, Docs Fix or other nominal change"
+          gh pr checkout ${{ env.PR }}
+          gh pr edit ${{env.PR}} --body "${{ env.PR_BODY }}\nBug, Docs Fix or other nominal change"

@@ -20,7 +20,7 @@ jobs:
             OWNER: ${{ github.repository_owner }}
             REPO: ${{ github.event.repository.name }}
             BRANCH: ${{github.event.pull_request.head.ref}}
-#             PR: ${{github.event.pull_request}}
+            PR: ${{github.event.pull_request.id}}
         run: |
           gh pr checkout ${{ env.BRANCH }}
-          gh pr edit --body "${{ env.BRANCH }}\nBug, Docs Fix or other nominal change"
+          gh pr edit --body "${{ env.PR }}\nBug, Docs Fix or other nominal change"

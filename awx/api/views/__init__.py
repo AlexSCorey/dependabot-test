@@ -22,6 +22,7 @@ from django.conf import settings
 from django.core.exceptions import FieldError, ObjectDoesNotExist
 from django.db.models import Q, Sum
 from django.db import IntegrityError, ProgrammingError, transaction, connection
+from django.db.models.fields.related import ManyToManyField, ForeignKey
 from django.shortcuts import get_object_or_404
 from django.utils.safestring import mark_safe
 from django.utils.timezone import now
@@ -68,7 +69,6 @@ from awx.api.generics import (
     APIView,
     BaseUsersList,
     CopyAPIView,
-    DeleteLastUnattachLabelMixin,
     GenericAPIView,
     ListAPIView,
     ListCreateAPIView,
@@ -85,6 +85,7 @@ from awx.api.generics import (
     SubListCreateAttachDetachAPIView,
     SubListDestroyAPIView,
 )
+from awx.api.views.labels import LabelSubListCreateAttachDetachView
 from awx.api.versioning import reverse
 from awx.main import models
 from awx.main.utils import (
@@ -121,6 +122,22 @@ from awx.api.views.mixin import (
     UnifiedJobDeletionMixin,
     NoTruncateMixin,
 )
+from awx.api.views.instance_install_bundle import InstanceInstallBundle  # noqa
+from awx.api.views.inventory import (  # noqa
+    InventoryList,
+    InventoryDetail,
+    InventoryUpdateEventsList,
+    InventoryList,
+    InventoryDetail,
+    InventoryActivityStreamList,
+    InventoryInstanceGroupsList,
+    InventoryAccessList,
+    InventoryObjectRolesList,
+    InventoryJobTemplateList,
+    InventoryLabelList,
+    InventoryCopy,
+)
+from awx.api.views.mesh_visualizer import MeshVisualizer  # noqa
 from awx.api.views.organization import (  # noqa
     OrganizationList,
     OrganizationDetail,
@@ -144,21 +161,6 @@ from awx.api.views.organization import (  # noqa
     OrganizationAccessList,
     OrganizationObjectRolesList,
 )
-from awx.api.views.inventory import (  # noqa
-    InventoryList,
-    InventoryDetail,
-    InventoryUpdateEventsList,
-    InventoryList,
-    InventoryDetail,
-    InventoryActivityStreamList,
-    InventoryInstanceGroupsList,
-    InventoryAccessList,
-    InventoryObjectRolesList,
-    InventoryJobTemplateList,
-    InventoryLabelList,
-    InventoryCopy,
-)
-from awx.api.views.mesh_visualizer import MeshVisualizer  # noqa
 from awx.api.views.root import (  # noqa
     ApiRootView,
     ApiOAuthAuthorizationRootView,
@@ -172,7 +174,6 @@ from awx.api.views.root import (  # noqa
 from awx.api.views.webhooks import WebhookKeyView, GithubWebhookReceiver, GitlabWebhookReceiver  # noqa
 from awx.api.pagination import UnifiedJobEventPagination
 from awx.main.utils import set_environ
-
 
 logger = logging.getLogger('awx.api.views')
 
@@ -358,7 +359,7 @@ class DashboardJobsGraphView(APIView):
         return Response(dashboard_data)
 
 
-class InstanceList(ListAPIView):
+class InstanceList(ListCreateAPIView):
 
     name = _("Instances")
     model = models.Instance
@@ -395,6 +396,17 @@ class InstanceUnifiedJobsList(SubListAPIView):
         qs = get_user_queryset(self.request.user, models.UnifiedJob)
         qs = qs.filter(execution_node=po.hostname)
         return qs
+
+
+class InstancePeersList(SubListAPIView):
+
+    name = _("Instance Peers")
+    parent_model = models.Instance
+    model = models.Instance
+    serializer_class = serializers.InstanceSerializer
+    parent_access = 'read'
+    search_fields = {'hostname'}
+    relationship = 'peers'
 
 
 class InstanceInstanceGroupsList(InstanceGroupMembershipMixin, SubListCreateAttachDetachAPIView):
@@ -439,40 +451,21 @@ class InstanceHealthCheck(GenericAPIView):
 
     def post(self, request, *args, **kwargs):
         obj = self.get_object()
+        if obj.health_check_pending:
+            return Response({'msg': f"Health check was already in progress for {obj.hostname}."}, status=status.HTTP_200_OK)
 
-        if obj.node_type == 'execution':
+        # Note: hop nodes are already excluded by the get_queryset method
+        obj.health_check_started = now()
+        obj.save(update_fields=['health_check_started'])
+        if obj.node_type == models.Instance.Types.EXECUTION:
             from awx.main.tasks.system import execution_node_health_check
 
-            runner_data = execution_node_health_check(obj.hostname)
-            obj.refresh_from_db()
-            data = self.get_serializer(data=request.data).to_representation(obj)
-            # Add in some extra unsaved fields
-            for extra_field in ('transmit_timing', 'run_timing'):
-                if extra_field in runner_data:
-                    data[extra_field] = runner_data[extra_field]
+            execution_node_health_check.apply_async([obj.hostname])
         else:
             from awx.main.tasks.system import cluster_node_health_check
 
-            if settings.CLUSTER_HOST_ID == obj.hostname:
-                cluster_node_health_check(obj.hostname)
-            else:
-                cluster_node_health_check.apply_async([obj.hostname], queue=obj.hostname)
-                start_time = time.time()
-                prior_check_time = obj.last_health_check
-                while time.time() - start_time < 50.0:
-                    obj.refresh_from_db(fields=['last_health_check'])
-                    if obj.last_health_check != prior_check_time:
-                        break
-                    if time.time() - start_time < 1.0:
-                        time.sleep(0.1)
-                    else:
-                        time.sleep(1.0)
-                else:
-                    obj.mark_offline(errors=_('Health check initiated by user determined this instance to be unresponsive'))
-            obj.refresh_from_db()
-            data = self.get_serializer(data=request.data).to_representation(obj)
-
-        return Response(data, status=status.HTTP_200_OK)
+            cluster_node_health_check.apply_async([obj.hostname], queue=obj.hostname)
+        return Response({'msg': f"Health check is running for {obj.hostname}."}, status=status.HTTP_200_OK)
 
 
 class InstanceGroupList(ListCreateAPIView):
@@ -615,6 +608,19 @@ class LaunchConfigCredentialsBase(SubListAttachDetachAPIView):
 class ScheduleCredentialsList(LaunchConfigCredentialsBase):
 
     parent_model = models.Schedule
+
+
+class ScheduleLabelsList(LabelSubListCreateAttachDetachView):
+
+    parent_model = models.Schedule
+
+
+class ScheduleInstanceGroupList(SubListAttachDetachAPIView):
+
+    model = models.InstanceGroup
+    serializer_class = serializers.InstanceGroupSerializer
+    parent_model = models.Schedule
+    relationship = 'instance_groups'
 
 
 class ScheduleUnifiedJobsList(SubListAPIView):
@@ -2381,10 +2387,13 @@ class JobTemplateLaunch(RetrieveAPIView):
             for field, ask_field_name in modified_ask_mapping.items():
                 if not getattr(obj, ask_field_name):
                     data.pop(field, None)
-                elif field == 'inventory':
+                elif isinstance(getattr(obj.__class__, field).field, ForeignKey):
                     data[field] = getattrd(obj, "%s.%s" % (field, 'id'), None)
-                elif field == 'credentials':
-                    data[field] = [cred.id for cred in obj.credentials.all()]
+                elif isinstance(getattr(obj.__class__, field).field, ManyToManyField):
+                    if field == 'instance_groups':
+                        data[field] = []
+                        continue
+                    data[field] = [item.id for item in getattr(obj, field).all()]
                 else:
                     data[field] = getattr(obj, field)
         return data
@@ -2719,28 +2728,9 @@ class JobTemplateCredentialsList(SubListCreateAttachDetachAPIView):
         return super(JobTemplateCredentialsList, self).is_valid_relation(parent, sub, created)
 
 
-class JobTemplateLabelList(DeleteLastUnattachLabelMixin, SubListCreateAttachDetachAPIView):
+class JobTemplateLabelList(LabelSubListCreateAttachDetachView):
 
-    model = models.Label
-    serializer_class = serializers.LabelSerializer
     parent_model = models.JobTemplate
-    relationship = 'labels'
-
-    def post(self, request, *args, **kwargs):
-        # If a label already exists in the database, attach it instead of erroring out
-        # that it already exists
-        if 'id' not in request.data and 'name' in request.data and 'organization' in request.data:
-            existing = models.Label.objects.filter(name=request.data['name'], organization_id=request.data['organization'])
-            if existing.exists():
-                existing = existing[0]
-                request.data['id'] = existing.id
-                del request.data['name']
-                del request.data['organization']
-        if models.Label.objects.filter(unifiedjobtemplate_labels=self.kwargs['pk']).count() > 100:
-            return Response(
-                dict(msg=_('Maximum number of labels for {} reached.'.format(self.parent_model._meta.verbose_name_raw))), status=status.HTTP_400_BAD_REQUEST
-            )
-        return super(JobTemplateLabelList, self).post(request, *args, **kwargs)
 
 
 class JobTemplateCallback(GenericAPIView):
@@ -2966,6 +2956,22 @@ class WorkflowJobNodeCredentialsList(SubListAPIView):
     relationship = 'credentials'
 
 
+class WorkflowJobNodeLabelsList(SubListAPIView):
+
+    model = models.Label
+    serializer_class = serializers.LabelSerializer
+    parent_model = models.WorkflowJobNode
+    relationship = 'labels'
+
+
+class WorkflowJobNodeInstanceGroupsList(SubListAttachDetachAPIView):
+
+    model = models.InstanceGroup
+    serializer_class = serializers.InstanceGroupSerializer
+    parent_model = models.WorkflowJobNode
+    relationship = 'instance_groups'
+
+
 class WorkflowJobTemplateNodeList(ListCreateAPIView):
 
     model = models.WorkflowJobTemplateNode
@@ -2982,6 +2988,19 @@ class WorkflowJobTemplateNodeDetail(RetrieveUpdateDestroyAPIView):
 class WorkflowJobTemplateNodeCredentialsList(LaunchConfigCredentialsBase):
 
     parent_model = models.WorkflowJobTemplateNode
+
+
+class WorkflowJobTemplateNodeLabelsList(LabelSubListCreateAttachDetachView):
+
+    parent_model = models.WorkflowJobTemplateNode
+
+
+class WorkflowJobTemplateNodeInstanceGroupsList(SubListAttachDetachAPIView):
+
+    model = models.InstanceGroup
+    serializer_class = serializers.InstanceGroupSerializer
+    parent_model = models.WorkflowJobTemplateNode
+    relationship = 'instance_groups'
 
 
 class WorkflowJobTemplateNodeChildrenBaseList(EnforceParentRelationshipMixin, SubListCreateAttachDetachAPIView):
@@ -3196,13 +3215,17 @@ class WorkflowJobTemplateLaunch(RetrieveAPIView):
                 data['extra_vars'] = extra_vars
             modified_ask_mapping = models.WorkflowJobTemplate.get_ask_mapping()
             modified_ask_mapping.pop('extra_vars')
-            for field_name, ask_field_name in obj.get_ask_mapping().items():
+
+            for field, ask_field_name in modified_ask_mapping.items():
                 if not getattr(obj, ask_field_name):
-                    data.pop(field_name, None)
-                elif field_name == 'inventory':
-                    data[field_name] = getattrd(obj, "%s.%s" % (field_name, 'id'), None)
+                    data.pop(field, None)
+                elif isinstance(getattr(obj.__class__, field).field, ForeignKey):
+                    data[field] = getattrd(obj, "%s.%s" % (field, 'id'), None)
+                elif isinstance(getattr(obj.__class__, field).field, ManyToManyField):
+                    data[field] = [item.id for item in getattr(obj, field).all()]
                 else:
-                    data[field_name] = getattr(obj, field_name)
+                    data[field] = getattr(obj, field)
+
         return data
 
     def post(self, request, *args, **kwargs):
@@ -3689,15 +3712,21 @@ class JobCreateSchedule(RetrieveAPIView):
             extra_data=config.extra_data,
             survey_passwords=config.survey_passwords,
             inventory=config.inventory,
+            execution_environment=config.execution_environment,
             char_prompts=config.char_prompts,
             credentials=set(config.credentials.all()),
+            labels=set(config.labels.all()),
+            instance_groups=list(config.instance_groups.all()),
         )
         if not request.user.can_access(models.Schedule, 'add', schedule_data):
             raise PermissionDenied()
 
-        creds_list = schedule_data.pop('credentials')
+        related_fields = ('credentials', 'labels', 'instance_groups')
+        related = [schedule_data.pop(relationship) for relationship in related_fields]
         schedule = models.Schedule.objects.create(**schedule_data)
-        schedule.credentials.add(*creds_list)
+        for relationship, items in zip(related_fields, related):
+            for item in items:
+                getattr(schedule, relationship).add(item)
 
         data = serializers.ScheduleSerializer(schedule, context=self.get_serializer_context()).data
         data.serializer.instance = None  # hack to avoid permissions.py assuming this is Job model
@@ -4426,18 +4455,6 @@ class NotificationDetail(RetrieveAPIView):
 
     model = models.Notification
     serializer_class = serializers.NotificationSerializer
-
-
-class LabelList(ListCreateAPIView):
-
-    model = models.Label
-    serializer_class = serializers.LabelSerializer
-
-
-class LabelDetail(RetrieveUpdateAPIView):
-
-    model = models.Label
-    serializer_class = serializers.LabelSerializer
 
 
 class ActivityStreamList(SimpleListAPIView):

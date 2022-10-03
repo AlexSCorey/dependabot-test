@@ -2232,6 +2232,7 @@ class InventoryUpdateSerializer(UnifiedJobSerializer, InventorySourceOptionsSeri
             'source_project_update',
             'custom_virtualenv',
             'instance_group',
+            'scm_revision',
         )
 
     def get_related(self, obj):
@@ -2922,6 +2923,12 @@ class JobTemplateSerializer(JobTemplateMixin, UnifiedJobTemplateSerializer, JobO
             'ask_verbosity_on_launch',
             'ask_inventory_on_launch',
             'ask_credential_on_launch',
+            'ask_execution_environment_on_launch',
+            'ask_labels_on_launch',
+            'ask_forks_on_launch',
+            'ask_job_slice_count_on_launch',
+            'ask_timeout_on_launch',
+            'ask_instance_groups_on_launch',
             'survey_enabled',
             'become_enabled',
             'diff_mode',
@@ -3184,7 +3191,7 @@ class JobRelaunchSerializer(BaseSerializer):
         return attrs
 
 
-class JobCreateScheduleSerializer(BaseSerializer):
+class JobCreateScheduleSerializer(LabelsListMixin, BaseSerializer):
 
     can_schedule = serializers.SerializerMethodField()
     prompts = serializers.SerializerMethodField()
@@ -3210,11 +3217,14 @@ class JobCreateScheduleSerializer(BaseSerializer):
         try:
             config = obj.launch_config
             ret = config.prompts_dict(display=True)
-            if 'inventory' in ret:
-                ret['inventory'] = self._summarize('inventory', ret['inventory'])
-            if 'credentials' in ret:
-                all_creds = [self._summarize('credential', cred) for cred in ret['credentials']]
-                ret['credentials'] = all_creds
+            for field_name in ('inventory', 'execution_environment'):
+                if field_name in ret:
+                    ret[field_name] = self._summarize(field_name, ret[field_name])
+            for field_name, singular in (('credentials', 'credential'), ('instance_groups', 'instance_group')):
+                if field_name in ret:
+                    ret[field_name] = [self._summarize(singular, obj) for obj in ret[field_name]]
+            if 'labels' in ret:
+                ret['labels'] = self._summary_field_labels(config)
             return ret
         except JobLaunchConfig.DoesNotExist:
             return {'all': _('Unknown, job may have been ran before launch configurations were saved.')}
@@ -3387,6 +3397,9 @@ class WorkflowJobTemplateSerializer(JobTemplateMixin, LabelsListMixin, UnifiedJo
     limit = serializers.CharField(allow_blank=True, allow_null=True, required=False, default=None)
     scm_branch = serializers.CharField(allow_blank=True, allow_null=True, required=False, default=None)
 
+    skip_tags = serializers.CharField(allow_blank=True, allow_null=True, required=False, default=None)
+    job_tags = serializers.CharField(allow_blank=True, allow_null=True, required=False, default=None)
+
     class Meta:
         model = WorkflowJobTemplate
         fields = (
@@ -3405,6 +3418,11 @@ class WorkflowJobTemplateSerializer(JobTemplateMixin, LabelsListMixin, UnifiedJo
             'webhook_service',
             'webhook_credential',
             '-execution_environment',
+            'ask_labels_on_launch',
+            'ask_skip_tags_on_launch',
+            'ask_tags_on_launch',
+            'skip_tags',
+            'job_tags',
         )
 
     def get_related(self, obj):
@@ -3448,7 +3466,7 @@ class WorkflowJobTemplateSerializer(JobTemplateMixin, LabelsListMixin, UnifiedJo
 
         # process char_prompts, these are not direct fields on the model
         mock_obj = self.Meta.model()
-        for field_name in ('scm_branch', 'limit'):
+        for field_name in ('scm_branch', 'limit', 'skip_tags', 'job_tags'):
             if field_name in attrs:
                 setattr(mock_obj, field_name, attrs[field_name])
                 attrs.pop(field_name)
@@ -3474,6 +3492,9 @@ class WorkflowJobSerializer(LabelsListMixin, UnifiedJobSerializer):
     limit = serializers.CharField(allow_blank=True, allow_null=True, required=False, default=None)
     scm_branch = serializers.CharField(allow_blank=True, allow_null=True, required=False, default=None)
 
+    skip_tags = serializers.CharField(allow_blank=True, allow_null=True, required=False, default=None)
+    job_tags = serializers.CharField(allow_blank=True, allow_null=True, required=False, default=None)
+
     class Meta:
         model = WorkflowJob
         fields = (
@@ -3493,6 +3514,8 @@ class WorkflowJobSerializer(LabelsListMixin, UnifiedJobSerializer):
             'webhook_service',
             'webhook_credential',
             'webhook_guid',
+            'skip_tags',
+            'job_tags',
         )
 
     def get_related(self, obj):
@@ -3609,6 +3632,9 @@ class LaunchConfigurationBaseSerializer(BaseSerializer):
     skip_tags = serializers.CharField(allow_blank=True, allow_null=True, required=False, default=None)
     diff_mode = serializers.BooleanField(required=False, allow_null=True, default=None)
     verbosity = serializers.ChoiceField(allow_null=True, required=False, default=None, choices=VERBOSITY_CHOICES)
+    forks = serializers.IntegerField(required=False, allow_null=True, min_value=0, default=None)
+    job_slice_count = serializers.IntegerField(required=False, allow_null=True, min_value=0, default=None)
+    timeout = serializers.IntegerField(required=False, allow_null=True, default=None)
     exclude_errors = ()
 
     class Meta:
@@ -3624,13 +3650,21 @@ class LaunchConfigurationBaseSerializer(BaseSerializer):
             'skip_tags',
             'diff_mode',
             'verbosity',
+            'execution_environment',
+            'forks',
+            'job_slice_count',
+            'timeout',
         )
 
     def get_related(self, obj):
         res = super(LaunchConfigurationBaseSerializer, self).get_related(obj)
         if obj.inventory_id:
             res['inventory'] = self.reverse('api:inventory_detail', kwargs={'pk': obj.inventory_id})
+        if obj.execution_environment_id:
+            res['execution_environment'] = self.reverse('api:execution_environment_detail', kwargs={'pk': obj.execution_environment_id})
+        res['labels'] = self.reverse('api:{}_labels_list'.format(get_type_for_model(self.Meta.model)), kwargs={'pk': obj.pk})
         res['credentials'] = self.reverse('api:{}_credentials_list'.format(get_type_for_model(self.Meta.model)), kwargs={'pk': obj.pk})
+        res['instance_groups'] = self.reverse('api:{}_instance_groups_list'.format(get_type_for_model(self.Meta.model)), kwargs={'pk': obj.pk})
         return res
 
     def _build_mock_obj(self, attrs):
@@ -4082,7 +4116,6 @@ class SystemJobEventSerializer(AdHocCommandEventSerializer):
 
 
 class JobLaunchSerializer(BaseSerializer):
-
     # Representational fields
     passwords_needed_to_start = serializers.ReadOnlyField()
     can_start_without_user_input = serializers.BooleanField(read_only=True)
@@ -4105,6 +4138,12 @@ class JobLaunchSerializer(BaseSerializer):
     skip_tags = serializers.CharField(required=False, write_only=True, allow_blank=True)
     limit = serializers.CharField(required=False, write_only=True, allow_blank=True)
     verbosity = serializers.ChoiceField(required=False, choices=VERBOSITY_CHOICES, write_only=True)
+    execution_environment = serializers.PrimaryKeyRelatedField(queryset=ExecutionEnvironment.objects.all(), required=False, write_only=True)
+    labels = serializers.PrimaryKeyRelatedField(many=True, queryset=Label.objects.all(), required=False, write_only=True)
+    forks = serializers.IntegerField(required=False, write_only=True, min_value=0)
+    job_slice_count = serializers.IntegerField(required=False, write_only=True, min_value=0)
+    timeout = serializers.IntegerField(required=False, write_only=True)
+    instance_groups = serializers.PrimaryKeyRelatedField(many=True, queryset=InstanceGroup.objects.all(), required=False, write_only=True)
 
     class Meta:
         model = JobTemplate
@@ -4132,6 +4171,12 @@ class JobLaunchSerializer(BaseSerializer):
             'ask_verbosity_on_launch',
             'ask_inventory_on_launch',
             'ask_credential_on_launch',
+            'ask_execution_environment_on_launch',
+            'ask_labels_on_launch',
+            'ask_forks_on_launch',
+            'ask_job_slice_count_on_launch',
+            'ask_timeout_on_launch',
+            'ask_instance_groups_on_launch',
             'survey_enabled',
             'variables_needed_to_start',
             'credential_needed_to_start',
@@ -4139,6 +4184,12 @@ class JobLaunchSerializer(BaseSerializer):
             'job_template_data',
             'defaults',
             'verbosity',
+            'execution_environment',
+            'labels',
+            'forks',
+            'job_slice_count',
+            'timeout',
+            'instance_groups',
         )
         read_only_fields = (
             'ask_scm_branch_on_launch',
@@ -4151,6 +4202,12 @@ class JobLaunchSerializer(BaseSerializer):
             'ask_verbosity_on_launch',
             'ask_inventory_on_launch',
             'ask_credential_on_launch',
+            'ask_execution_environment_on_launch',
+            'ask_labels_on_launch',
+            'ask_forks_on_launch',
+            'ask_job_slice_count_on_launch',
+            'ask_timeout_on_launch',
+            'ask_instance_groups_on_launch',
         )
 
     def get_credential_needed_to_start(self, obj):
@@ -4175,6 +4232,17 @@ class JobLaunchSerializer(BaseSerializer):
                     if cred.credential_type.managed and 'vault_id' in cred.credential_type.defined_fields:
                         cred_dict['vault_id'] = cred.get_input('vault_id', default=None)
                     defaults_dict.setdefault(field_name, []).append(cred_dict)
+            elif field_name == 'execution_environment':
+                if obj.execution_environment_id:
+                    defaults_dict[field_name] = {'id': obj.execution_environment.id, 'name': obj.execution_environment.name}
+                else:
+                    defaults_dict[field_name] = {}
+            elif field_name == 'labels':
+                for label in obj.labels.all():
+                    label_dict = {'id': label.id, 'name': label.name}
+                    defaults_dict.setdefault(field_name, []).append(label_dict)
+            elif field_name == 'instance_groups':
+                defaults_dict[field_name] = []
             else:
                 defaults_dict[field_name] = getattr(obj, field_name)
         return defaults_dict
@@ -4282,6 +4350,10 @@ class WorkflowJobLaunchSerializer(BaseSerializer):
     scm_branch = serializers.CharField(required=False, write_only=True, allow_blank=True)
     workflow_job_template_data = serializers.SerializerMethodField()
 
+    labels = serializers.PrimaryKeyRelatedField(many=True, queryset=Label.objects.all(), required=False, write_only=True)
+    skip_tags = serializers.CharField(required=False, write_only=True, allow_blank=True)
+    job_tags = serializers.CharField(required=False, write_only=True, allow_blank=True)
+
     class Meta:
         model = WorkflowJobTemplate
         fields = (
@@ -4301,8 +4373,22 @@ class WorkflowJobLaunchSerializer(BaseSerializer):
             'workflow_job_template_data',
             'survey_enabled',
             'ask_variables_on_launch',
+            'ask_labels_on_launch',
+            'labels',
+            'ask_skip_tags_on_launch',
+            'ask_tags_on_launch',
+            'skip_tags',
+            'job_tags',
         )
-        read_only_fields = ('ask_inventory_on_launch', 'ask_variables_on_launch')
+        read_only_fields = (
+            'ask_inventory_on_launch',
+            'ask_variables_on_launch',
+            'ask_skip_tags_on_launch',
+            'ask_labels_on_launch',
+            'ask_limit_on_launch',
+            'ask_scm_branch_on_launch',
+            'ask_tags_on_launch',
+        )
 
     def get_survey_enabled(self, obj):
         if obj:
@@ -4310,10 +4396,15 @@ class WorkflowJobLaunchSerializer(BaseSerializer):
         return False
 
     def get_defaults(self, obj):
+
         defaults_dict = {}
         for field_name in WorkflowJobTemplate.get_ask_mapping().keys():
             if field_name == 'inventory':
                 defaults_dict[field_name] = dict(name=getattrd(obj, '%s.name' % field_name, None), id=getattrd(obj, '%s.pk' % field_name, None))
+            elif field_name == 'labels':
+                for label in obj.labels.all():
+                    label_dict = {"id": label.id, "name": label.name}
+                    defaults_dict.setdefault(field_name, []).append(label_dict)
             else:
                 defaults_dict[field_name] = getattr(obj, field_name)
         return defaults_dict
@@ -4322,6 +4413,7 @@ class WorkflowJobLaunchSerializer(BaseSerializer):
         return dict(name=obj.name, id=obj.id, description=obj.description)
 
     def validate(self, attrs):
+
         template = self.instance
 
         accepted, rejected, errors = template._accept_or_ignore_job_kwargs(**attrs)
@@ -4339,6 +4431,7 @@ class WorkflowJobLaunchSerializer(BaseSerializer):
         WFJT_inventory = template.inventory
         WFJT_limit = template.limit
         WFJT_scm_branch = template.scm_branch
+
         super(WorkflowJobLaunchSerializer, self).validate(attrs)
         template.extra_vars = WFJT_extra_vars
         template.inventory = WFJT_inventory
@@ -4730,6 +4823,8 @@ class ScheduleSerializer(LaunchConfigurationBaseSerializer, SchedulePreviewSeria
         if isinstance(obj.unified_job_template, SystemJobTemplate):
             summary_fields['unified_job_template']['job_type'] = obj.unified_job_template.job_type
 
+        # We are not showing instance groups on summary fields because JTs don't either
+
         if 'inventory' in summary_fields:
             return summary_fields
 
@@ -4764,7 +4859,7 @@ class ScheduleSerializer(LaunchConfigurationBaseSerializer, SchedulePreviewSeria
 class InstanceLinkSerializer(BaseSerializer):
     class Meta:
         model = InstanceLink
-        fields = ('source', 'target')
+        fields = ('source', 'target', 'link_state')
 
     source = serializers.SlugRelatedField(slug_field="hostname", read_only=True)
     target = serializers.SlugRelatedField(slug_field="hostname", read_only=True)
@@ -4773,62 +4868,79 @@ class InstanceLinkSerializer(BaseSerializer):
 class InstanceNodeSerializer(BaseSerializer):
     class Meta:
         model = Instance
-        fields = ('id', 'hostname', 'node_type', 'node_state')
-
-    node_state = serializers.SerializerMethodField()
-
-    def get_node_state(self, obj):
-        if not obj.enabled:
-            return "disabled"
-        return "error" if obj.errors else "healthy"
+        fields = ('id', 'hostname', 'node_type', 'node_state', 'enabled')
 
 
 class InstanceSerializer(BaseSerializer):
+    show_capabilities = ['edit']
 
     consumed_capacity = serializers.SerializerMethodField()
     percent_capacity_remaining = serializers.SerializerMethodField()
-    jobs_running = serializers.IntegerField(help_text=_('Count of jobs in the running or waiting state that ' 'are targeted for this instance'), read_only=True)
+    jobs_running = serializers.IntegerField(help_text=_('Count of jobs in the running or waiting state that are targeted for this instance'), read_only=True)
     jobs_total = serializers.IntegerField(help_text=_('Count of all jobs that target this instance'), read_only=True)
+    health_check_pending = serializers.SerializerMethodField()
 
     class Meta:
         model = Instance
-        read_only_fields = ('uuid', 'hostname', 'version', 'node_type')
+        read_only_fields = ('ip_address', 'uuid', 'version')
         fields = (
-            "id",
-            "type",
-            "url",
-            "related",
-            "uuid",
-            "hostname",
-            "created",
-            "modified",
-            "last_seen",
-            "last_health_check",
-            "errors",
+            'id',
+            'hostname',
+            'type',
+            'url',
+            'related',
+            'summary_fields',
+            'uuid',
+            'created',
+            'modified',
+            'last_seen',
+            'health_check_started',
+            'health_check_pending',
+            'last_health_check',
+            'errors',
             'capacity_adjustment',
-            "version",
-            "capacity",
-            "consumed_capacity",
-            "percent_capacity_remaining",
-            "jobs_running",
-            "jobs_total",
-            "cpu",
-            "memory",
-            "cpu_capacity",
-            "mem_capacity",
-            "enabled",
-            "managed_by_policy",
-            "node_type",
+            'version',
+            'capacity',
+            'consumed_capacity',
+            'percent_capacity_remaining',
+            'jobs_running',
+            'jobs_total',
+            'cpu',
+            'memory',
+            'cpu_capacity',
+            'mem_capacity',
+            'enabled',
+            'managed_by_policy',
+            'node_type',
+            'node_state',
+            'ip_address',
+            'listener_port',
         )
+        extra_kwargs = {
+            'node_type': {'initial': Instance.Types.EXECUTION, 'default': Instance.Types.EXECUTION},
+            'node_state': {'initial': Instance.States.INSTALLED, 'default': Instance.States.INSTALLED},
+        }
 
     def get_related(self, obj):
         res = super(InstanceSerializer, self).get_related(obj)
         res['jobs'] = self.reverse('api:instance_unified_jobs_list', kwargs={'pk': obj.pk})
         res['instance_groups'] = self.reverse('api:instance_instance_groups_list', kwargs={'pk': obj.pk})
+        if settings.IS_K8S and obj.node_type in (Instance.Types.EXECUTION,):
+            res['install_bundle'] = self.reverse('api:instance_install_bundle', kwargs={'pk': obj.pk})
+        res['peers'] = self.reverse('api:instance_peers_list', kwargs={"pk": obj.pk})
         if self.context['request'].user.is_superuser or self.context['request'].user.is_system_auditor:
             if obj.node_type != 'hop':
                 res['health_check'] = self.reverse('api:instance_health_check', kwargs={'pk': obj.pk})
         return res
+
+    def get_summary_fields(self, obj):
+        summary = super().get_summary_fields(obj)
+
+        # use this handle to distinguish between a listView and a detailView
+        if self.is_detail_view:
+            summary['links'] = InstanceLinkSerializer(InstanceLink.objects.select_related('target', 'source').filter(source=obj), many=True).data
+
+        return summary
 
     def get_consumed_capacity(self, obj):
         return obj.consumed_capacity
@@ -4839,10 +4951,54 @@ class InstanceSerializer(BaseSerializer):
         else:
             return float("{0:.2f}".format(((float(obj.capacity) - float(obj.consumed_capacity)) / (float(obj.capacity))) * 100))
 
-    def validate(self, attrs):
-        if self.instance.node_type == 'hop':
-            raise serializers.ValidationError(_('Hop node instances may not be changed.'))
-        return attrs
+    def get_health_check_pending(self, obj):
+        return obj.health_check_pending
+
+    def validate(self, data):
+        if self.instance:
+            if self.instance.node_type == Instance.Types.HOP:
+                raise serializers.ValidationError("Hop node instances may not be changed.")
+        else:
+            if not settings.IS_K8S:
+                raise serializers.ValidationError("Can only create instances on Kubernetes or OpenShift.")
+        return data
+
+    def validate_node_type(self, value):
+        if not self.instance:
+            if value not in (Instance.Types.EXECUTION,):
+                raise serializers.ValidationError("Can only create execution nodes.")
+        else:
+            if self.instance.node_type != value:
+                raise serializers.ValidationError("Cannot change node type.")
+
+        return value
+
+    def validate_node_state(self, value):
+        if self.instance:
+            if value != self.instance.node_state:
+                if not settings.IS_K8S:
+                    raise serializers.ValidationError("Can only change the state on Kubernetes or OpenShift.")
+                if value != Instance.States.DEPROVISIONING:
+                    raise serializers.ValidationError("Can only change instances to the 'deprovisioning' state.")
+                if self.instance.node_type not in (Instance.Types.EXECUTION,):
+                    raise serializers.ValidationError("Can only deprovision execution nodes.")
+        else:
+            if value and value != Instance.States.INSTALLED:
+                raise serializers.ValidationError("Can only create instances in the 'installed' state.")
+
+        return value
+
+    def validate_hostname(self, value):
+        if self.instance and self.instance.hostname != value:
+            raise serializers.ValidationError("Cannot change hostname.")
+
+        return value
+
+    def validate_listener_port(self, value):
+        if self.instance and self.instance.listener_port != value:
+            raise serializers.ValidationError("Cannot change listener port.")
+
+        return value
 
 
 class InstanceHealthCheckSerializer(BaseSerializer):

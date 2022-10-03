@@ -609,8 +609,6 @@ class TaskManager(TaskBase):
 
             found_acceptable_queue = False
 
-            preferred_instance_groups = self.instance_groups.get_instance_groups_from_task_cache(task)
-
             # Determine if there is control capacity for the task
             if task.capacity_type == 'control':
                 control_impact = task.task_impact + settings.AWX_CONTROL_NODE_TASK_IMPACT
@@ -636,16 +634,12 @@ class TaskManager(TaskBase):
                 found_acceptable_queue = True
                 continue
 
-            for instance_group in preferred_instance_groups:
+            for instance_group in self.instance_groups.get_instance_groups_from_task_cache(task):
                 if instance_group.is_container_group:
                     self.start_task(task, instance_group, task.get_jobs_fail_chain(), None)
                     found_acceptable_queue = True
                     break
 
-                # TODO: remove this after we have confidence that OCP control nodes are reporting node_type=control
-                if settings.IS_K8S and task.capacity_type == 'execution':
-                    logger.debug("Skipping group {}, task cannot run on control plane".format(instance_group.name))
-                    continue
                 # at this point we know the instance group is NOT a container group
                 # because if it was, it would have started the task and broke out of the loop.
                 execution_instance = self.instance_groups.fit_task_to_most_remaining_capacity_instance(

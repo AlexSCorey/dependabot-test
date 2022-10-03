@@ -36,6 +36,7 @@ jobs:
             headers = {'Accept': 'application/vnd.github+json', 'Authorization': 'token ${{ secrets.GITHUB_TOKEN }}'}
             response = requests.get('${{ fromJson(toJson(github.event.pull_request.user.url)) }}/orgs?per_page=100', headers=headers)
             is_member = False
+            print({{response.json()}})
             for org in response.json():
               if org['login'] == 'ansible':
                 is_member = True
